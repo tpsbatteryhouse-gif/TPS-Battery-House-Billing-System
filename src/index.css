@@ -1,0 +1,70 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+body {
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #1e293b;
+  background-color: #0f172a;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Print Styles */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 8mm 8mm 8mm;
+  }
+  
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  /* Make sure the invoice container takes full width and natural height on print */
+  #invoice-printable {
+    box-shadow: none !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+    border: none !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    background: #ffffff !important;
+    page-break-inside: avoid;
+  }
+
+  /* Ensure borders and backgrounds print properly */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
