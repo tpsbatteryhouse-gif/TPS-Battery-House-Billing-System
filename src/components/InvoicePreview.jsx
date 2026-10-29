@@ -68,8 +68,8 @@ export default function InvoicePreview({ invoice, business, invoiceCopy = 'Origi
             </div>
           </div>
           <div className="mt-2 text-[10px] text-slate-600">
-            <div>State: <span className="font-semibold text-slate-800">{business.state}</span> (Code: <span className="font-semibold text-slate-800">{business.stateCode}</span>)</div>
-            <div>PAN: <span className="font-mono font-semibold text-slate-700">{business.gstin.slice(2, 12)}</span></div>
+            <div>State: <span className="font-semibold text-slate-800">{business?.state || 'Kerala'}</span> (Code: <span className="font-semibold text-slate-800">{business?.stateCode || '32'}</span>)</div>
+            <div>PAN: <span className="font-mono font-semibold text-slate-700">{(business?.gstin || '').length >= 12 ? business.gstin.slice(2, 12) : '—'}</span></div>
           </div>
         </div>
       </div>
@@ -113,29 +113,29 @@ export default function InvoicePreview({ invoice, business, invoiceCopy = 'Origi
                 Details of Buyer / Billed To
               </span>
               <span className="text-[9px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.2 rounded">
-                {invoice.customer.gstin ? 'B2B (Registered)' : 'B2C (Consumer)'}
+                {invoice?.customer?.gstin ? 'B2B (Registered)' : 'B2C (Consumer)'}
               </span>
             </div>
             <div className="text-[13px] font-bold text-slate-900 pt-0.5">
-              {invoice.customer.name || 'Cash Customer'}
+              {invoice?.customer?.name || 'Cash Customer'}
             </div>
-            {invoice.customer.phone && (
+            {invoice?.customer?.phone && (
               <div className="text-slate-700">
                 <span className="font-medium">Mobile:</span> +91 {invoice.customer.phone}
               </div>
             )}
             <div className="text-slate-600 leading-snug">
-              {invoice.customer.address && <span>{invoice.customer.address}, </span>}
-              {invoice.customer.city && <span>{invoice.customer.city}, </span>}
-              {invoice.customer.district && <span>{invoice.customer.district}, </span>}
-              <span>{invoice.customer.state || 'Kerala'}</span>
-              {invoice.customer.pincode && <span> - {invoice.customer.pincode}</span>}
+              {invoice?.customer?.address && <span>{invoice.customer.address}, </span>}
+              {invoice?.customer?.city && <span>{invoice.customer.city}, </span>}
+              {invoice?.customer?.district && <span>{invoice.customer.district}, </span>}
+              <span>{invoice?.customer?.state || 'Kerala'}</span>
+              {invoice?.customer?.pincode && <span> - {invoice.customer.pincode}</span>}
             </div>
             <div className="pt-1 flex gap-4 text-[10px] text-slate-700">
               <div>
-                <span className="font-medium">State Code:</span> <span className="font-bold">{invoice.customer.stateCode || '32'}</span>
+                <span className="font-medium">State Code:</span> <span className="font-bold">{invoice?.customer?.stateCode || '32'}</span>
               </div>
-              {invoice.customer.gstin && (
+              {invoice?.customer?.gstin && (
                 <div>
                   <span className="font-medium">GSTIN:</span> <span className="font-mono font-bold text-slate-900">{invoice.customer.gstin}</span>
                 </div>

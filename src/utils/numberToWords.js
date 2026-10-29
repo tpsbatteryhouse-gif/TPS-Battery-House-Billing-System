@@ -26,7 +26,7 @@ function convertBelowThousand(n) {
 }
 
 export function numberToIndianWords(amount) {
-  if (amount === undefined || amount === null || isNaN(amount)) return 'Zero Rupees Only';
+  if (amount === undefined || amount === null || isNaN(amount) || !isFinite(amount)) return 'Zero Rupees Only';
   const num = Math.abs(Number(amount));
   if (num === 0) return 'Zero Rupees Only';
 
@@ -75,7 +75,7 @@ export function numberToIndianWords(amount) {
 }
 
 export function formatINR(val) {
-  if (val === undefined || val === null || isNaN(val)) return '₹0.00';
+  if (val === undefined || val === null || isNaN(val) || !isFinite(val)) return '₹0.00';
   return new Intl.NumberFormat('en-IN', {
     style: 'currency',
     currency: 'INR',
@@ -85,7 +85,7 @@ export function formatINR(val) {
 }
 
 export function formatNumber(val) {
-  if (val === undefined || val === null || isNaN(val)) return '0.00';
+  if (val === undefined || val === null || isNaN(val) || !isFinite(val)) return '0.00';
   return new Intl.NumberFormat('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,

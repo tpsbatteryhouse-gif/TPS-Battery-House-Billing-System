@@ -9,8 +9,6 @@ import {
   Phone,
   User,
   ArrowRightLeft,
-  AlertTriangle,
-  Download,
 } from 'lucide-react';
 import { formatINR } from '../utils/numberToWords';
 

@@ -5,9 +5,9 @@ import { numberToIndianWords } from './numberToWords';
  * Handles both Tax Inclusive (MRP reverse calculation) and Tax Exclusive pricing.
  */
 export function calculateLineItem(item, isInterstate = false) {
-  const qty = Number(item.qty) || 0;
-  const rate = Number(item.rate) || 0;
-  const gstRate = Number(item.gstRate) || 0;
+  const qty = Math.max(0, Number(item.qty) || 0);
+  const rate = Math.max(0, Number(item.rate) || 0);
+  const gstRate = Math.max(0, Number(item.gstRate) || 0);
   const isInclusive = Boolean(item.isTaxInclusive);
 
   let taxableValue = 0;
@@ -16,7 +16,7 @@ export function calculateLineItem(item, isInterstate = false) {
   if (isInclusive) {
     // If rate includes GST, the total gross is rate * qty
     grossAmount = rate * qty;
-    taxableValue = grossAmount / (1 + gstRate / 100);
+    taxableValue = gstRate > 0 ? grossAmount / (1 + gstRate / 100) : grossAmount;
   } else {
     // If rate is exclusive of GST
     taxableValue = rate * qty;
@@ -60,8 +60,8 @@ export function calculateLineItem(item, isInterstate = false) {
 }
 
 export function calculateInvoiceTotals(invoice, businessStateCode = '32') {
-  const customerStateCode = (invoice.customer?.stateCode || '32').trim();
-  const isInterstate = customerStateCode !== '' && customerStateCode !== businessStateCode;
+  const customerStateCode = String(invoice?.customer?.stateCode || '32').trim();
+  const isInterstate = customerStateCode !== '' && customerStateCode !== String(businessStateCode).trim();
 
   const computedItems = (invoice.items || []).map((item) =>
     calculateLineItem(item, isInterstate)

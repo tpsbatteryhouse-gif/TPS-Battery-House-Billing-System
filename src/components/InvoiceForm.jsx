@@ -5,20 +5,14 @@ import {
   Sparkles,
   RotateCcw,
   Save,
-  Shield,
-  Layers,
   Percent,
   CheckCircle2,
-  AlertCircle,
-  HelpCircle,
   Receipt,
   User,
   Package,
   ArrowRightLeft,
-  ChevronDown,
 } from 'lucide-react';
 import {
-  COMMON_HSN_SUGGESTIONS,
   ITEM_PRESETS,
   PAYMENT_MODES,
   UNITS_LIST,
@@ -26,6 +20,7 @@ import {
 } from '../utils/defaults';
 import { formatNumber } from '../utils/numberToWords';
 import { calculateLineItem } from '../utils/gstCalculations';
+import { generateId } from '../utils/idGenerator';
 
 export default function InvoiceForm({
   invoice,
@@ -54,7 +49,7 @@ export default function InvoiceForm({
   const addItem = (preset = null) => {
     const newItem = preset
       ? {
-          id: 'item-' + Date.now() + Math.random().toString(36).substring(2, 5),
+          id: generateId('item'),
           name: preset.name,
           hsn: preset.hsn,
           serialNo: '',
@@ -66,7 +61,7 @@ export default function InvoiceForm({
           gstRate: preset.gstRate,
         }
       : {
-          id: 'item-' + Date.now() + Math.random().toString(36).substring(2, 5),
+          id: generateId('item'),
           name: '',
           hsn: '8507',
           serialNo: '',
@@ -387,7 +382,7 @@ export default function InvoiceForm({
                           min="0"
                           step="0.01"
                           value={item.rate}
-                          onChange={(e) => updateItem(idx, 'rate', parseFloat(e.target.value) || 0)}
+                          onChange={(e) => updateItem(idx, 'rate', Math.max(0, parseFloat(e.target.value) || 0))}
                           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white text-right focus:outline-none focus:border-amber-500"
                         />
                       </div>
@@ -689,7 +684,7 @@ export default function InvoiceForm({
                       min="0"
                       step="50"
                       value={invoice.scrapExchange.amount}
-                      onChange={(e) => updateField('scrapExchange.amount', parseFloat(e.target.value) || 0)}
+                      onChange={(e) => updateField('scrapExchange.amount', Math.max(0, parseFloat(e.target.value) || 0))}
                       placeholder="2000"
                       className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-3 py-2 text-sm font-mono font-bold text-amber-400 focus:outline-none focus:border-amber-400"
                     />
@@ -716,7 +711,7 @@ export default function InvoiceForm({
                     min="0"
                     step="10"
                     value={invoice.additionalDiscount}
-                    onChange={(e) => updateField('additionalDiscount', parseFloat(e.target.value) || 0)}
+                    onChange={(e) => updateField('additionalDiscount', Math.max(0, parseFloat(e.target.value) || 0))}
                     placeholder="0"
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
                   />

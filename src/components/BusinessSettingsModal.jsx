@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Building2, Save, RotateCcw, CreditCard, Shield, QrCode } from 'lucide-react';
+import { X, Building2, Save, RotateCcw, CreditCard, QrCode } from 'lucide-react';
 import { DEFAULT_BUSINESS } from '../utils/defaults';
 
 export default function BusinessSettingsModal({ isOpen, onClose, business, setBusiness }) {
