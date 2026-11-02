@@ -23,8 +23,10 @@ import InvoiceForm from './components/InvoiceForm';
 import InvoicePreview from './components/InvoicePreview';
 import InvoiceHistoryModal from './components/InvoiceHistoryModal';
 import BusinessSettingsModal from './components/BusinessSettingsModal';
+import ProductCatalogView from './components/ProductCatalogView';
 import { DEFAULT_BUSINESS, getSampleInvoiceData } from './utils/defaults';
 import { INITIAL_MOCK_INVOICES, MOCK_USER } from './data/mockData';
+import { INITIAL_PRODUCT_CATALOG, PRODUCT_CATEGORIES, CATEGORY_CONFIG } from './utils/categories';
 import { downloadInvoicePdf } from './utils/pdfExport';
 import { calculateInvoiceTotals } from './utils/gstCalculations';
 import { formatINR } from './utils/numberToWords';
@@ -67,6 +69,20 @@ export default function App() {
     }
   });
 
+  // Centralized Product Catalog Dataset
+  const [catalog, setCatalog] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tps_product_catalog');
+      if (saved !== null) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return INITIAL_PRODUCT_CATALOG;
+    } catch {
+      return INITIAL_PRODUCT_CATALOG;
+    }
+  });
+
   // UI Modal & Control States
   const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -98,6 +114,15 @@ export default function App() {
       console.error('Failed to save draft:', e);
     }
   }, [invoice]);
+
+  // Persist Product Catalog
+  useEffect(() => {
+    try {
+      localStorage.setItem('tps_product_catalog', JSON.stringify(catalog));
+    } catch (e) {
+      console.error('Failed to save catalog to storage:', e);
+    }
+  }, [catalog]);
 
   // Compute Next Sequential Invoice Number without collisions
   const getNextInvoiceNumber = () => {
@@ -150,6 +175,36 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // Handle Adding a Catalog Product to Active Draft Invoice
+  const handleAddProductToActiveBill = (product) => {
+    const cat = product.category || PRODUCT_CATEGORIES.BATTERY;
+    const catCfg = CATEGORY_CONFIG[cat] || CATEGORY_CONFIG[PRODUCT_CATEGORIES.BATTERY];
+    const newItem = {
+      id: 'item-' + Date.now(),
+      name: product.name,
+      category: cat,
+      subcategory: product.subcategory || '',
+      brand: product.brand || '',
+      model: product.model || '',
+      specs: { ...(product.specs || {}) },
+      hsn: product.hsn || catCfg.defaultHsn,
+      serialNo: '',
+      warranty: product.warranty || '36 Months',
+      qty: 1,
+      unit: product.unit || catCfg.defaultUnit || 'Nos',
+      rate: Number(product.sellingPrice) || 0,
+      isTaxInclusive: product.isTaxInclusive !== undefined ? product.isTaxInclusive : true,
+      gstRate: Number(product.gstRate) || catCfg.defaultGstRate || 28,
+    };
+
+    setInvoice((prev) => ({
+      ...prev,
+      items: [...prev.items, newItem],
+    }));
+
+    showToast(`Added "${product.name}" to bill!`);
+  };
+
   // Handle New Invoice trigger (loads blank template into editor or opens modal)
   const handleStartNewInvoice = () => {
     const newInvNo = getNextInvoiceNumber();
@@ -179,9 +234,14 @@ export default function App() {
         {
           id: 'item-1',
           name: '',
+          category: PRODUCT_CATEGORIES.BATTERY,
+          subcategory: 'Tubular Battery',
+          brand: '',
+          model: '',
+          specs: {},
           hsn: '8507',
           serialNo: '',
-          warranty: '36 Months Replacement',
+          warranty: '36 Months',
           qty: 1,
           unit: 'Nos',
           rate: 0,
@@ -509,6 +569,7 @@ export default function App() {
                     <InvoiceForm
                       invoice={invoice}
                       setInvoice={setInvoice}
+                      catalog={catalog}
                       onSave={handleSaveInvoiceInEditor}
                       onReset={handleStartNewInvoice}
                       onLoadSample={handleLoadSample}
@@ -553,6 +614,19 @@ export default function App() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* VIEW 4: PRODUCT & SERVICE CATALOG MANAGEMENT */}
+            {activeView === 'catalog' && (
+              <ProductCatalogView
+                catalog={catalog}
+                setCatalog={setCatalog}
+                onAddToInvoice={(prod) => {
+                  handleAddProductToActiveBill(prod);
+                  setActiveView('editor');
+                }}
+                onNavigateToEditor={() => setActiveView('editor')}
+              />
             )}
           </main>
 

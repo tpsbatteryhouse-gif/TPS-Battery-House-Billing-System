@@ -1,130 +1,80 @@
 # Security Assessment and System Limitations
 
 > **Document Status:** Active & Verified  
-> **Last Updated:** October 2026  
-> **Target System:** TPS BATTERYS HOUSE — Invoice Management Application  
+> **Last Updated:** November 2026  
+> **Target System:** TPS BATTERYS HOUSE — Multi-Category Invoice Management Application  
 > **Deployment Architecture:** Client-side Single Page Application (React 19 / Vite 8 / Tailwind CSS 3)
 
 ---
 
 ## 1. Executive Security & Architecture Summary
 
-The **TPS BATTERYS HOUSE** application is currently engineered as a **purely client-side, browser-resident Single Page Application (SPA)**. It relies on in-memory React state and browser `localStorage` for all persistence and data operations.
+The **TPS BATTERYS HOUSE** application is engineered as a **purely client-side, browser-resident Single Page Application (SPA)**. It relies on in-memory React state and browser `localStorage` for all invoice records and product catalog entries.
 
-There is **no remote backend server, database, or cloud synchronization layer** connected to this application.
+There is **no remote backend server, cloud database, or synchronization API** connected to this application.
 
 ```mermaid
 graph TD
     User([Browser Operator]) <--> UI[React Components]
     UI <--> State[React In-Memory State]
-    State <--> LocalStorage[(Browser LocalStorage\ntps_invoice_records)]
+    State <--> LocalStorage[(Browser LocalStorage:\ntps_invoice_records\ntps_product_catalog\ntps_business_profile)]
     
-    UI -. No Remote Channel .-> Cloud[(No Cloud Database / No Backend API)]
+    UI -. No Remote Channel .-> Cloud[(No Cloud Database / No External API)]
     
     style Cloud fill:#fee2e2,stroke:#ef4444,stroke-width:2px,stroke-dasharray: 5 5;
     style LocalStorage fill:#fef3c7,stroke:#f59e0b,stroke-width:2px;
 ```
 
 > [!WARNING]
-> **Production Alert:** This application is **not production-secure** for enterprise multi-user accounting or multi-branch operations in its current architecture. Storing sensitive customer GSTINs, phone numbers, and financial transactions exclusively in unencrypted client-side browser storage carries substantial operational, data-loss, and regulatory risks.
+> **Production Alert:** This application is **not production-secure** for multi-user accounting or multi-branch operations in its current standalone architecture. Storing sensitive customer GSTINs, phone numbers, and financial transactions exclusively in unencrypted client-side browser storage carries operational, data-loss, and regulatory risks.
 
 ---
 
 ## 2. Feature Implementation Status Matrix
 
-The following table explicitly classifies every core capability of the application based on rigorous audit evidence:
+The following table explicitly classifies every core capability of the application:
 
 | Feature / Domain | Classification | Current State & Technical Reality |
 | :--- | :--- | :--- |
-| **User Authentication** | **Simulated** | Profile modal displays hardcoded mock operator details ("Alex Johnson", Store Manager). Sign-in / Sign-out buttons only toggle local UI states. No cryptographic sessions, tokens (JWT), cookies, or password verification exist. |
-| **Role-Based Access Control (RBAC)** | **Not Implemented** | Any person with physical access to the browser session can create, edit, change statuses, or delete invoices. There are no privilege levels (Admin vs. Cashier vs. Read-Only). |
-| **Data Persistence** | **Implemented (Client-Only)** | Serialized JSON stored in `localStorage` under `tps_invoice_records`. Bounded to a single browser profile on a single physical machine. |
-| **Multi-Device Synchronization** | **Not Implemented** | Changes made on one phone, laptop, or desktop are completely isolated to that specific browser instance and will never sync to other devices. |
-| **Financial Calculations (GST)** | **Implemented** | Accurate mathematical derivation of line totals, discounts, scrap trade-in, CGST/SGST/IGST, and Indian currency rounding in `gstCalculations.js`. |
-| **Server-Side Validation** | **Not Implemented** | All input checking occurs strictly in browser JavaScript. An operator or script executing in DevTools can bypass form rules. |
-| **Backup & Disaster Recovery** | **Not Implemented** | There is no automatic cloud snapshot, database replica, or periodic remote export. If browser data is cleared, all records are permanently destroyed. |
-| **Audit Logging & History** | **Not Implemented** | Invoices track an `updatedAt` / `createdAt` timestamp in their payload, but there is no append-only immutable audit trail recording *who* modified or deleted an invoice. |
-| **Payment Processing** | **Simulated / Manual** | Invoices can be toggled between `Paid`, `Pending`, and `Overdue`. No UPI payment gateway, POS terminal webhook, or bank reconciliation is integrated. |
-| **PDF Generation & Printing** | **Implemented (Client-Only)** | Pure client-side vector jsPDF engine (40–85 KB) and native browser print styles. Generates 100% locally in browser memory without transmitting customer records, phone numbers, or invoice data to any third-party cloud server. |
+| **Multi-Category Invoicing** | **Implemented** | Full support for Battery, Inverter, Solar, and Services line items with dynamic technical specifications and independent GST/HSN parameters. |
+| **Product Catalog Management** | **Implemented (Client-Only)** | Centralized catalog stored in `tps_product_catalog` with category filters, brand filters, live search, and CRUD capabilities. |
+| **Stock / Inventory Deduction** | **Not Implemented** | The product catalog does NOT track live physical stock quantities. Stock management and catalog management remain deliberately separated. |
+| **User Authentication** | **Simulated** | Profile modal displays hardcoded mock operator details ("Alex Johnson"). Sign-in/Sign-out buttons toggle local UI state. No cryptographic tokens or cookies exist. |
+| **Role-Based Access Control (RBAC)** | **Not Implemented** | Any person with physical access to the browser session can create, edit, or delete catalog products and invoice records. |
+| **Data Persistence** | **Implemented (Client-Only)** | Serialized JSON stored in browser `localStorage`. Bounded strictly to a single browser profile on a single physical machine. |
+| **Multi-Device Synchronization** | **Not Implemented** | Invoices or products created on one device do not synchronize with other devices. |
+| **Financial Calculations (GST)** | **Implemented** | Precise multi-HSN mathematical derivation of line totals, discounts, scrap trade-in, CGST/SGST/IGST, and Indian currency rounding in `gstCalculations.js`. |
+| **Vector PDF Generation** | **Implemented (Client-Only)** | Ultra-lightweight vector PDF generator using `jspdf` (~78 KB - 85 KB) with 100% selectable text, crisp vector lines, and embedded UPI QR code. |
 
 ---
 
 ## 3. Storage & Persistence Risks (`localStorage`)
 
 ### 3.1 Unencrypted Plaintext Storage
-- **Mechanism:** Browser `localStorage` writes data in UTF-16 plaintext strings to the user's local disk.
-- **Risk:** Any extension installed in the browser, any malicious script loaded via an XSS vulnerability, or any user with physical access to the terminal workstation can read the complete invoice database, customer phone numbers, addresses, and GSTINs by running `localStorage.getItem('tps_invoice_records')`.
+- Browser `localStorage` writes data in UTF-16 plaintext strings to the user's local disk profile.
+- Any browser extension, script running in DevTools, or unauthorized person with physical access can read the complete invoice records and product catalog via `localStorage.getItem('tps_invoice_records')` and `localStorage.getItem('tps_product_catalog')`.
 
 ### 3.2 Accidental Data Purging
-- **Mechanism:** `localStorage` is not a durable database. It can be wiped at any moment by:
-  1. The user clicking "Clear Browsing Data" / "Clear Cookies and Site Data".
-  2. Operating system disk-cleanup utilities or browser privacy extensions.
-  3. Browser storage quota eviction policies when system storage runs low.
-  4. Opening the application in an "Incognito / Private Browsing" window (which automatically discards all storage on window close).
-- **Impact:** Permanent, unrecoverable data loss for any commercial invoices created during that session.
+- Browser `localStorage` is not a durable database. It can be purged by:
+  1. The operator clicking "Clear Browsing Data" / "Clear Cookies and Site Data".
+  2. Operating system disk-cleanup utilities.
+  3. Browser storage quota eviction policies.
+  4. Operating in an "Incognito / Private Browsing" window.
+- **Mitigation:** Operators must frequently download and archive generated PDF invoices.
 
 ### 3.3 Storage Quota Limits
-- **Mechanism:** Browser `localStorage` typically enforces a strict origin quota of **5MB to 10MB**.
-- **Impact:** While JSON invoice metadata is lightweight, storing thousands of complex itemized invoices over years of operation will eventually hit quota limits (`DOMException: QuotaExceededError`), leading to failed invoice saves unless a true database is introduced.
+- Browser `localStorage` typically enforces an origin quota of **5MB to 10MB**. Storing thousands of detailed mixed-category invoices over years will eventually exceed this quota unless migrated to an IndexedDB or cloud database backend.
 
 ---
 
-## 4. Authentication & Operator Simulation
+## 4. Statutory & Tax Compliance Disclaimer
 
-The application interface includes an operator profile avatar and a "Sign In / Sign Out" toggle in `UserProfileModal.jsx` and `Header.jsx`.
-
-> [!IMPORTANT]
-> **Authentication Disclaimer:**
-> The profile details:
-> - **Operator Name:** Alex Johnson
-> - **Role:** Store Manager
-> - **Employee ID:** TPS-OP-4421
-> - **Contact:** alex.j@tpsbatterys.com
+> [!CAUTION]
+> **Tax Advisory Notice:**
+> The default HSN codes and GST percentages provided in the application presets:
+> - `8507` @ 28% for Lead-Acid & Lithium Batteries
+> - `8504` @ 18% for Inverters, Converters, and UPS Systems
+> - `8541` @ 12% for Solar Photovoltaic Modules / Solar Cells
+> - `9954` / `9987` @ 18% for Installation, Commissioning, and Maintenance Services
 > 
-> Are **entirely simulated for demonstration purposes**. No actual user credentials exist in the codebase.
-> 
-> 1. Entering credentials or clicking "Sign In" does not issue an authentication challenge or query an identity provider (OAuth/LDAP/Active Directory).
-> 2. There is no session expiration or idle timeout.
-> 3. Do not rely on this modal for workstation access control or operator accountability.
-
----
-
-## 5. Input Validation & Injection Risks
-
-### 5.1 Client-Side Sanitization & XSS
-- **React Escaping:** The application utilizes standard React JSX data binding (`{invoice.customer.name}`, `{item.description}`), which automatically escapes HTML entities and prevents classic Cross-Site Scripting (XSS) via form inputs.
-- **`dangerouslySetInnerHTML` Audit:** A full repository search confirmed **zero instances** of `dangerouslySetInnerHTML`.
-- **Limitation:** In the absence of server-side sanitization, malformed or malicious payloads injected directly into `localStorage` could corrupt application rendering or trigger prototype pollution if untrusted properties are read.
-
-### 5.2 Date Parsing & Regional Formats
-- Form inputs utilize native HTML5 `<input type="date">` returning standardized ISO `YYYY-MM-DD` strings.
-- JavaScript `new Date()` parsing with defensive checks (`!isNaN(parsedDate)`) has been implemented to prevent locale-dependent date misinterpretations.
-
----
-
-## 6. Dependency & Supply Chain Posture
-
-An audit of `package.json` revealed a minimal, modern dependency tree:
-- **`react` & `react-dom`:** v19.2.0 (Latest React core)
-- **`lucide-react`:** v1.16.0 (SVG icon library)
-- **`vite`:** v8.0.0 (Modern, lightweight build tool)
-- **`tailwindcss`:** v3.4.19 & `postcss` (Utility CSS engine)
-- **`oxlint`:** v1.50.0 (Rust-based linter)
-
-### Dependency Security Notes
-1. **Zero External Network Dependencies at Runtime:** The built client bundles all vendor assets locally. It makes zero runtime calls to external CDNs, tracking pixels, or third-party analytical scripts.
-2. **No Backend Middleware Vulnerabilities:** Because there is no Node/Express server runtime, traditional server vulnerabilities (e.g., SSRF, server prototype pollution, remote code execution) are non-existent in the deployed artifact.
-
----
-
-## 7. Recommended Production Security Checklist
-
-Before deploying this software in a multi-user retail or commercial enterprise environment, the following security controls must be implemented:
-
-- [ ] **Establish a Secure Backend API:** Implement a hardened REST or GraphQL backend (e.g., Node/Fastify, Go, or Python) running behind an HTTPS reverse proxy (Nginx / Cloudflare).
-- [ ] **Relational Database Storage:** Migrate storage to PostgreSQL or MySQL with ACID compliance, relational foreign keys, and point-in-time database snapshots.
-- [ ] **Enterprise Authentication:** Implement JWT or session-based authentication backed by bcrypt/Argon2 password hashing or OAuth2 / OpenID Connect.
-- [ ] **Server-Side Validation:** Enforce strict schema validation (using Zod or Joi) on the server to prevent tamper-prone monetary manipulations.
-- [ ] **Append-Only Audit Log:** Maintain an immutable ledger recording every invoice creation, status change, discount override, and cancellation with operator IDs and timestamps.
-- [ ] **Automated Daily Backups:** Configure off-site encrypted backups of all invoice data with tested disaster recovery procedures.
-- [ ] **Role-Based Permissions:** Restrict invoice deletion, discount overrides, and tax rate configuration to authorized store managers.
+> Are industry-standard starting configurations. GST rates on renewable energy equipment and composite works contracts are subject to state notifications and CBIC circulars. The application provides fully editable tax fields on every line item so that operators can align calculations with their certified tax advisor's instructions.

@@ -1,119 +1,105 @@
 # Operator User Guide — TPS BATTERYS HOUSE
 
-This guide provides step-by-step instructions for operating the **TPS BATTERYS HOUSE** Invoice Management Application.
+This guide provides operational instructions for managing multi-category sales, product catalog entries, mixed-category invoices, GST calculations, and vector PDF exports in the **TPS BATTERYS HOUSE** billing application.
 
 ---
 
 ## 1. Navigating the Application
 
-The header bar at the top of the screen provides continuous access to all core sections:
+The top navigation header provides continuous access to all system modules:
 
-1. **Dashboard:** Displays business summary cards, current local time, and recent invoices.
-2. **Invoices:** Opens the full searchable invoice table with sorting options.
-3. **Tax Bill Generator:** Opens the dual-panel Kerala GST billing workspace with live A4 preview.
-4. **Settings (Gear Icon):** Allows editing store name, GSTIN, bank details, and UPI ID.
-5. **Operator Profile (Initials Avatar):** Accesses simulated operator profile and sign-out controls.
-
----
-
-## 2. Using the Home Dashboard
-
-### A. Understanding Summary Cards
-The four summary cards at the top of the dashboard reflect the current state of all recorded invoices:
-- **Total Invoices:** Total number of registered invoices (including drafts).
-- **Paid:** Count of settled invoices with the percentage collection rate.
-- **Pending:** Number of invoices awaiting customer payment with total uncollected balance.
-- **Total Revenue:** Sum of all collected funds from paid invoices formatted in Indian Rupees (`₹`).
-
-### B. Searching for an Invoice
-1. Locate the search bar in the **Recent Invoices** section (placeholder: *"Search by invoice number or client name..."*).
-2. Type an invoice number (e.g., `TPS/2026-27/001`) or a customer name (e.g., `Rajesh`).
-3. Results filter in real time as you type (case-insensitive).
-4. Click the **`X`** button inside the search field to clear your query.
-
-### C. Filtering by Payment Status
-Click any of the status filter tabs above the invoice list:
-- **All:** Displays all invoices regardless of status.
-- **Paid:** Invoices with confirmed settlement.
-- **Pending:** Unpaid invoices within payment terms.
-- **Overdue:** Invoices where the due date has elapsed without payment.
-- **Draft:** Work-in-progress quotations or unsaved orders.
+1. **Dashboard:** KPI summary metrics, Category Sales distribution bars (Batteries, Inverters, Solar, Services), and category-filtered recent invoices.
+2. **Invoices:** Searchable, sortable list of all registered invoices with category tags.
+3. **Tax Bill Generator:** Full dual-panel Kerala GST billing workspace with live A4 preview.
+4. **Catalog:** Centralized Product Catalog for managing Battery, Inverter, Solar, and Service items.
+5. **Settings (Gear Icon):** Edit business details, GSTIN, bank credentials, and UPI ID.
+6. **Operator Profile (Initials Avatar):** Access operator profile and demo authentication controls.
 
 ---
 
-## 3. Creating a New Invoice
+## 2. Using the Product Catalog
 
-You can create an invoice using either the **Quick Create Modal** or the **Full GST Studio**.
+The Product Catalog lets operators maintain a standard list of items across all four categories:
 
-### Method 1: Quick Create Modal (Recommended for fast counter sales)
-1. Click the **`+ New Invoice`** button in the welcome section or click the gold **Floating Action Button (FAB)** in the bottom-right corner.
-2. Review the auto-generated **Invoice Number** (e.g., `TPS/2026-27/008`).
-3. Enter the **Client Name** (required).
-4. Enter the **Contact Phone** (optional 10-digit mobile number).
-5. Verify the **Invoice Date** (defaults to today) and **Due Date** (defaults to 7 days ahead).
-6. Select the **Payment Status** (`Draft`, `Pending`, `Paid`, or `Overdue`).
-7. In the **Line Items** section:
-   - Enter item description (e.g., `Fuze 1100 Inverter + 150 Ah Tubular Battery`).
-   - Enter **Quantity** (must be 1 or greater).
-   - Enter **Unit Price** in ₹ (must be 0 or greater).
-   - Click **`+ Add Item`** to add additional products.
-8. Review the **Calculated Total Payable**.
-9. Click **`Save Invoice`**. The invoice is immediately saved, and dashboard cards update in real time.
+### A. Browsing & Filtering Products
+1. Click the **Catalog** tab in the top header.
+2. Filter items by category using the category pills:
+   - **All Categories:** Shows complete inventory catalog.
+   - **Battery:** Storage, automotive, tubular, and solar batteries.
+   - **Inverter:** Home, hybrid, and solar inverters/UPS.
+   - **Solar:** Solar panels, charge controllers, cables, and solar kits.
+   - **Services:** Installation, mounting, AMC, and repair services.
+3. Filter by **Brand** (e.g. *Exide, Amaron, Luminous, Microtek, Waaree, Tata*) using the brand dropdown.
+4. Search items by model, brand, SKU, or rating (e.g. `150Ah`, `1100VA`, `550W`).
 
-### Method 2: Full GST Billing Studio (For tax invoices, HSN codes, and scrap exchange)
-1. Click **Tax Bill Generator** in the top navigation bar (or click *"Open in Full GST Tax Bill Studio"* from the modal).
-2. Fill out customer details, including optional B2B Customer GSTIN.
-3. Select from **Quick Item Catalogue** buttons (e.g., *Fuze 1100 Combo*, *Amaron 150Ah*, *Exide InvaMaster*) to populate items in one click.
-4. Toggle pricing mode: **`Incl. GST (MRP)`** or **`Excl. GST + Tax`**.
-5. Enable **Old Battery Scrap Buyback** if customer exchanges an old battery, and enter scrap allowance (e.g., `₹2,000`).
-6. Click **`Save Bill`** to store the invoice into the system.
+### B. Adding a New Product
+1. Click **`+ Add New Product`**.
+2. Select the product category (**Battery**, **Inverter**, **Solar**, or **Services**).
+3. Fill in the relevant technical specifications:
+   - **Battery:** Capacity (`Ah`), Voltage (`12V/24V`), Technology (`Tall Tubular`, `Lithium`, etc.).
+   - **Inverter:** Rating (`VA`), Power (`Watts`), Waveform (`Pure Sine Wave`), Voltage.
+   - **Solar:** Wattage (`Wp`), Technology (`Mono PERC`, `Bifacial`), System Capacity (`kW`).
+   - **Services:** Scope of work and warranty terms (physical fields are hidden).
+4. Set HSN/SAC code, GST rate (e.g. 28% for batteries, 18% for inverters/services, 12% for solar), unit of measurement, and selling price.
+5. Click **`Save Product`**.
 
----
-
-## 4. Printing & Downloading Invoices
-
-### Downloading a PDF
-1. Open the invoice in the **Tax Bill Generator**.
-2. Click the gold **`Download PDF`** button in the action bar.
-3. The application generates a high-resolution, vector-crisp A4 PDF named:
-   ```text
-   TPS_[InvoiceNumber]_[CustomerName].pdf
-   ```
-4. The file saves directly to your device's default download folder.
-
-### Printing via Printer
-1. Click the **`Print Bill`** button.
-2. The browser's native print preview dialog opens.
-3. The layout automatically uses dedicated `@media print` rules:
-   - Margins are preset to standard A4 (portrait).
-   - Headers, navigation bars, and action buttons are automatically hidden.
-   - Borders and table lines remain crisp without text clipping.
-
-### WhatsApp Sharing
-1. Click the green **`WhatsApp`** button.
-2. A pre-formatted summary text with invoice number, client name, item list, total net amount, and store phone number opens directly in WhatsApp Web or mobile app.
+### C. Adding a Catalog Item Directly to an Active Bill
+Click **`Add to Bill`** on any product card in the catalog. The item is instantly appended to the active draft invoice with its specifications, HSN, and GST rate, and you are taken to the Tax Bill Studio.
 
 ---
 
-## 5. Managing Records & Store Settings
+## 3. Creating Multi-Category Invoices
 
-### Viewing All Invoices
-1. Click **Invoices** in the top navigation bar or click **View All Invoices** from the dashboard.
-2. Use the sort dropdown to order invoices by **Newest First**, **Oldest First**, **Amount: High to Low**, or **Amount: Low to High**.
-3. Click the **Trash** icon next to any invoice to permanently delete it (confirmation prompt required).
+### Mixed-Category Billing
+A single invoice can combine products from different categories (e.g., *Waaree 550W Solar Panel + Luminous Inverter + Exide Tubular Battery + Solar Installation Service*).
 
-### Customizing Store Profile & Bank Details
-1. Click the **Settings (Gear Icon)** in the top header.
-2. Update the store name, contact phone numbers, or road address.
-3. Update the **Bank Name**, **Account Number**, **IFSC Code**, and **Branch**.
-4. Enter your shop's **UPI ID** (e.g., `9846830532@okaxis`). The dynamic QR code printed on invoices automatically updates to route payments to this ID.
-5. Click **`Save Changes`**.
+1. In the **Tax Bill Generator**, navigate to the **Line Items** tab.
+2. To add a product:
+   - Click **`Browse Full Catalog`** to pick from your pre-configured catalog items.
+   - Click any **Quick Item Catalogue** preset chip.
+   - Or click **`+ Add Battery`**, **`+ Add Inverter`**, **`+ Add Solar`**, or **`+ Add Service`** to create a blank line item.
+3. For each item:
+   - Fill in product name/model.
+   - Enter specifications (capacity, wattage, technology, waveform).
+   - Verify HSN code and applicable GST rate.
+   - Enter quantity and selling rate.
+   - Toggle pricing mode: **`Incl. GST (MRP)`** or **`Excl. GST + Tax`**.
+4. Each item calculates its taxable amount and applicable tax independently.
+
+### Old Battery Scrap Buyback (Battery Exclusive)
+1. Go to the **Scrap & Discounts** tab.
+2. If the customer is replacing an old battery, toggle **`Old Battery Scrap Buyback / Exchange`**.
+3. Enter the scrap description (e.g., *Old 150Ah Scrap Battery Buyback*) and scrap allowance amount (e.g., `₹2,500`).
+4. The scrap amount is subtracted transparently before net payable calculation.
 
 ---
 
-## 6. Simulated Operator Profile & Sign-Out
+## 4. Understanding Dashboard Metrics & Category Sales
 
-1. Click the **AJ** operator badge in the top right.
-2. Select **My Profile** to view operator credentials (`Alex Johnson`, `Administrator`) and the assigned branch.
-3. Select **Sign Out (Reset Demo)** to simulate ending the operator session.
-4. A dedicated demo lock screen appears. Click **Sign In as Alex Johnson (Demo)** to resume dashboard operations.
+The Dashboard provides non-double-counted insights into business performance:
+- **Total Invoices / Paid / Pending:** Transaction volume and payment status tracking.
+- **Collected Revenue:** Total funds received exclusively from settled (`Paid`) invoices.
+- **Category Sales Performance:** Displays revenue generated by category across all items:
+  - **Battery Sales (₹):** Total gross billing from battery products.
+  - **Inverter Sales (₹):** Total gross billing from inverters and UPS systems.
+  - **Solar Sales (₹):** Total gross billing from solar panels, controllers, and equipment.
+  - **Service Revenue (₹):** Total gross billing from installation and maintenance services.
+- **Category Filter:** Filter the recent invoices table by category to inspect transactions for specific equipment lines.
+
+---
+
+## 5. Exporting & Printing Invoices
+
+### Vector PDF Download
+1. Click **`Download PDF`** in the Tax Bill Generator header.
+2. The system generates a lightweight vector PDF (~78 KB - 85 KB) containing:
+   - Business branding and GSTIN.
+   - Buyer details and place of supply.
+   - Itemized line items table with category specifications and warranty details.
+   - Multi-HSN statutory GST tax summary.
+   - Bank details and dynamic UPI "Scan to Pay" QR Code.
+   - Authorized signatory box and terms.
+3. The PDF is saved directly to your Downloads folder.
+
+### Direct Printing
+Click **`Print`** to launch the browser's native print preview. Dedicated `@media print` CSS ensures clean A4 margins with navigation headers automatically omitted.

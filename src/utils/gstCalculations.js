@@ -1,14 +1,16 @@
 import { numberToIndianWords } from './numberToWords.js';
+import { normalizeInvoiceItem, PRODUCT_CATEGORIES } from './categories.js';
 
 /**
  * Calculates line-level and invoice-level GST values.
  * Handles both Tax Inclusive (MRP reverse calculation) and Tax Exclusive pricing.
  */
 export function calculateLineItem(item, isInterstate = false) {
-  const qty = Math.max(0, Number(item.qty) || 0);
-  const rate = Math.max(0, Number(item.rate) || 0);
-  const gstRate = Math.max(0, Number(item.gstRate) || 0);
-  const isInclusive = Boolean(item.isTaxInclusive);
+  const normalized = normalizeInvoiceItem(item);
+  const qty = Math.max(0, Number(normalized.qty) || 0);
+  const rate = Math.max(0, Number(normalized.rate) || 0);
+  const gstRate = Math.max(0, Number(normalized.gstRate) || 0);
+  const isInclusive = Boolean(normalized.isTaxInclusive);
 
   let taxableValue = 0;
   let grossAmount = 0;
@@ -43,7 +45,7 @@ export function calculateLineItem(item, isInterstate = false) {
   }
 
   return {
-    ...item,
+    ...normalized,
     qty,
     rate,
     gstRate,
@@ -73,6 +75,14 @@ export function calculateInvoiceTotals(invoice, businessStateCode = '32') {
   let totalIgst = 0;
   let totalGross = 0;
 
+  // Category sales breakdown (line totals per category, no double counting)
+  const categorySales = {
+    [PRODUCT_CATEGORIES.BATTERY]: 0,
+    [PRODUCT_CATEGORIES.INVERTER]: 0,
+    [PRODUCT_CATEGORIES.SOLAR]: 0,
+    [PRODUCT_CATEGORIES.SERVICES]: 0,
+  };
+
   // HSN Tax Breakdown Map
   const hsnMap = {};
 
@@ -82,6 +92,9 @@ export function calculateInvoiceTotals(invoice, businessStateCode = '32') {
     totalSgst += item.sgstAmount;
     totalIgst += item.igstAmount;
     totalGross += item.lineTotal;
+
+    const cat = item.category || PRODUCT_CATEGORIES.BATTERY;
+    categorySales[cat] = Number(((categorySales[cat] || 0) + item.lineTotal).toFixed(2));
 
     const hsnKey = `${item.hsn || '8507'}_${item.gstRate}`;
     if (!hsnMap[hsnKey]) {
@@ -155,6 +168,7 @@ export function calculateInvoiceTotals(invoice, businessStateCode = '32') {
     netPayable: Number(netPayable.toFixed(2)),
     amountInWords,
     hsnSummary,
+    categorySales,
   };
 }
 

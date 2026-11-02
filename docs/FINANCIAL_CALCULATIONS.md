@@ -1,9 +1,9 @@
 # Financial and GST Calculations — TPS BATTERYS HOUSE
 
-This document explains the mathematical formulas, reverse GST tax calculations, rounding mechanisms, and metric aggregations implemented in the application.
+This document explains the mathematical formulas, reverse GST tax calculations, multi-HSN grouping, category sales breakdowns, and rounding mechanisms implemented in the application.
 
 > [!NOTE]
-> **Statutory Disclaimer:** The formulas and calculations documented below are implemented in accordance with general Indian GST invoicing conventions (CGST, SGST, IGST split). They do not constitute formal legal or tax counsel. Tax rates, classification codes, and exemptions should be independently verified with a registered Chartered Accountant or GST practitioner.
+> **Statutory Disclaimer:** The calculations below follow standard Indian GST invoicing conventions (intra-state CGST+SGST, inter-state IGST). They do not constitute legal or tax counsel. Actual HSN codes and GST rates vary depending on battery chemistry, inverter topology, solar panel specifications, and composite/mixed supply contracts. Operators must consult their certified Chartered Accountant or tax advisor.
 
 ---
 
@@ -11,8 +11,8 @@ This document explains the mathematical formulas, reverse GST tax calculations, 
 
 Located in [`src/utils/gstCalculations.js`](../src/utils/gstCalculations.js).
 
-The system supports two pricing modes common in automotive retail:
-1. **Tax Inclusive (MRP Mode):** The entered rate is the gross retail price including GST.
+The system supports two pricing modes across all product categories:
+1. **Tax Inclusive (MRP Mode):** The entered rate includes GST.
 2. **Tax Exclusive (+GST Mode):** The entered rate is the net taxable value before tax.
 
 ### Formulas
@@ -38,81 +38,50 @@ $$\text{Gross Amount} = \text{Taxable Value} + \text{Total GST Amount}$$
 
 ---
 
-## 2. Worked Example 1: Fuze 1100 Combo Set (28% GST, Inclusive)
+## 2. Multi-HSN Statutory Summary Table
 
-- **Product:** Fuze 1100 Inverter + 150 Ah Tubular Battery (Combo Set)
-- **HSN:** 8507
-- **Qty:** 1 Set
-- **Unit Rate (Inclusive):** ₹22,000.00
-- **GST Rate:** 28% (Intrastate Kerala)
+When an invoice contains items across multiple categories with different HSN codes and tax rates, `calculateInvoiceTotals` groups line items by the composite key `${item.hsn}_${item.gstRate}`:
 
-### Step-by-Step Calculation:
-1. $\text{Gross Amount} = 22,000.00 \times 1 = \mathbf{₹22,000.00}$
-2. $\text{Taxable Value} = \frac{22,000.00}{1 + 0.28} = \frac{22,000.00}{1.28} = \mathbf{₹17,187.50}$
-3. $\text{Total GST} = 22,000.00 - 17,187.50 = \mathbf{₹4,812.50}$
-4. $\text{CGST (14\%)} = \frac{4,812.50}{2} = \mathbf{₹2,406.25}$
-5. $\text{SGST (14\%)} = \frac{4,812.50}{2} = \mathbf{₹2,406.25}$
-6. **Line Total:** $\mathbf{₹22,000.00}$
+$$\text{Group Taxable Value} = \sum_{\text{key}} \text{Item Taxable Value}$$
+$$\text{Group CGST Amount} = \sum_{\text{key}} \text{Item CGST Amount}$$
+$$\text{Group SGST Amount} = \sum_{\text{key}} \text{Item SGST Amount}$$
+$$\text{Group IGST Amount} = \sum_{\text{key}} \text{Item IGST Amount}$$
+
+Example of a multi-category invoice summary:
+| HSN / SAC | Description | GST Rate | Taxable Value | CGST Amount | SGST Amount | Total Tax |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `8507` | Lead-Acid Storage Battery | 28% | ₹12,109.38 | ₹1,695.31 | ₹1,695.31 | ₹3,390.62 |
+| `8504` | Pure Sine Wave Inverter | 18% | ₹5,762.71 | ₹518.64 | ₹518.64 | ₹1,037.29 |
+| `8541` | Bifacial Solar Panels (2 Nos) | 12% | ₹24,553.57 | ₹1,473.21 | ₹1,473.21 | ₹2,946.43 |
+| `9954` | Rooftop Solar Installation | 18% | ₹5,508.47 | ₹495.76 | ₹495.76 | ₹991.53 |
 
 ---
 
-## 3. Invoice-Level Aggregations (`calculateInvoiceTotals`)
+## 3. Category Sales Distribution (No Double Counting)
 
-Located in [`src/utils/gstCalculations.js`](../src/utils/gstCalculations.js).
+To report revenue by category accurately on mixed-category invoices, the sales contribution of each line item is mapped strictly to its own category:
 
-### Formulas:
-$$\text{Total Gross} = \sum \text{Line Total}_i$$
-$$\text{Subtotal After Deductions} = \max(0, \text{Total Gross} - \text{Scrap Discount} - \text{Special Discount})$$
+$$\text{Category Sales}[\text{cat}] = \sum_{i \in \text{items}, \, i.\text{category} = \text{cat}} \text{Line Total}_i$$
 
-### Rounding Adjustment (`roundOff`):
-- If `roundOffManual` is provided:
-  $$\text{Net Payable} = \max(0, \text{Subtotal After Deductions} + \text{roundOffManual})$$
-- If `roundOffManual === null` (Automatic Rounding):
+$$\sum_{\text{cat} \in \{\text{battery}, \text{inverter}, \text{solar}, \text{services}\}} \text{Category Sales}[\text{cat}] \equiv \text{Total Invoice Gross}$$
+
+This guarantees that:
+- A mixed invoice containing a ₹15,500 battery and a ₹6,800 inverter attributes exactly ₹15,500 to Battery Sales and ₹6,800 to Inverter Sales.
+- No mixed invoice is counted more than once in total revenue calculations.
+
+---
+
+## 4. Invoice Deductions & Net Payable
+
+$$\text{Total Gross} = \sum_{i} \text{Line Total}_i$$
+$$\text{Subtotal After Deductions} = \max(0, \text{Total Gross} - \text{Scrap Discount} - \text{Additional Discount})$$
+
+### Rounding:
+- **Auto Round-off (`roundOffManual === null`):**
   $$\text{Net Payable} = \text{round}(\text{Subtotal After Deductions})$$
-  $$\text{Round Off Adjustment} = \text{Net Payable} - \text{Subtotal After Deductions}$$
+  $$\text{Round-off Adjustment} = \text{Net Payable} - \text{Subtotal After Deductions}$$
+- **Manual Round-off:**
+  $$\text{Net Payable} = \max(0, \text{Subtotal After Deductions} + \text{roundOffManual})$$
 
----
-
-## 4. Worked Example 2: Complete Invoice with Scrap Exchange
-
-Taking the Fuze 1100 Combo Set above, with an old battery scrap exchange:
-- **Total Gross:** ₹22,000.00
-- **Scrap Battery Buyback Credit:** -₹2,000.00 (Old 150Ah scrap battery)
-- **Special Discount:** ₹0.00
-- **Subtotal After Deductions:** $22,000.00 - 2,000.00 = \mathbf{₹20,000.00}$
-- **Round-off:** ₹0.00
-- **Final Net Payable:** $\mathbf{₹20,000.00}$
-- **Amount in Words ([`src/utils/numberToWords.js`](../src/utils/numberToWords.js)):**
-  *"Twenty Thousand Rupees Only"*
-
----
-
-## 5. Dashboard Summary Metrics (`Dashboard.jsx`)
-
-Located in [`src/components/Dashboard.jsx`](../src/components/Dashboard.jsx).
-
-Metrics are calculated reactively via `useMemo` from the `invoices` array:
-
-| Metric Card | Calculation Formula |
-| :--- | :--- |
-| **Total Invoices** | $\text{count}(\text{invoices})$ |
-| **Paid Invoices** | $\text{count}(\{i \in \text{invoices} \mid i.\text{paymentStatus} === \text{'Paid'}\})$ |
-| **Pending Invoices**| $\text{count}(\{i \in \text{invoices} \mid i.\text{paymentStatus} === \text{'Pending'}\})$ |
-| **Total Revenue** | $\sum \{i.\text{netPayable} \mid i.\text{paymentStatus} === \text{'Paid'}\}$ |
-| **Pending Balance** | $\sum \{i.\text{netPayable} \mid i.\text{paymentStatus} === \text{'Pending'}\}$ |
-
-### Status Categorization Rules:
-- **`Paid`:** Counted in Paid card and added to Total Revenue.
-- **`Pending`:** Counted in Pending card and added to Pending Balance.
-- **`Overdue`:** Highlighted in red in the list; excluded from settled revenue.
-- **`Draft`:** Work-in-progress quotations; excluded from revenue figures.
-
----
-
-## 6. PDF Export Consistency & Financial Precision
-
-The vector PDF export engine in [`src/utils/pdfExport.js`](../src/utils/pdfExport.js) directly executes the same `calculateInvoiceTotals` function used by the on-screen preview and the store dashboard.
-
-- **Zero Variance:** All taxable values, CGST/SGST/IGST components, scrap allowances, discounts, and rounding values in the PDF match the on-screen preview and dashboard totals to two decimal places.
-- **Currency Presentation:** Monetary values in the PDF are formatted via `formatNumber()` with strict tabular alignment, and net payable amounts are formatted with the currency denomination (`Rs. 26,000.00` or `₹26,000.00`) and validated Indian currency words (`numberToIndianWords()`).
-
+### Number to Words ([`src/utils/numberToWords.js`](../src/utils/numberToWords.js)):
+Converts the net payable amount to official Indian accounting currency text (e.g., *"Forty-Seven Thousand Nine Hundred Twenty-Five Rupees Only"*).

@@ -16,6 +16,10 @@ import {
 } from 'lucide-react';
 import { INVOICE_STATUSES } from '../data/mockData';
 import { formatINR } from '../utils/numberToWords';
+import {
+  CATEGORY_CONFIG,
+  normalizeInvoiceItem,
+} from '../utils/categories';
 
 export default function AllInvoicesView({
   invoices,
@@ -26,6 +30,7 @@ export default function AllInvoicesView({
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('All');
+  const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState('newest'); // 'newest', 'oldest', 'amount-high', 'amount-low'
 
   const filteredInvoices = useMemo(() => {
@@ -34,11 +39,23 @@ export default function AllInvoicesView({
         if (selectedStatus !== 'All' && inv.paymentStatus !== selectedStatus) {
           return false;
         }
+
+        if (selectedCategory !== 'All') {
+          const hasCategory = (inv.items || []).some((rawItem) => {
+            const item = normalizeInvoiceItem(rawItem);
+            return item.category === selectedCategory;
+          });
+          if (!hasCategory) return false;
+        }
+
         if (searchQuery.trim() !== '') {
           const query = searchQuery.toLowerCase().trim();
           const invNo = (inv.invoiceNumber || '').toLowerCase();
           const client = (inv.customer?.name || '').toLowerCase();
-          return invNo.includes(query) || client.includes(query);
+          const itemsMatch = (inv.items || []).some((it) =>
+            (it.name || '').toLowerCase().includes(query)
+          );
+          return invNo.includes(query) || client.includes(query) || itemsMatch;
         }
         return true;
       })
@@ -62,7 +79,7 @@ export default function AllInvoicesView({
         }
         return 0;
       });
-  }, [invoices, searchQuery, selectedStatus, sortBy]);
+  }, [invoices, searchQuery, selectedStatus, selectedCategory, sortBy]);
 
   const renderStatusBadge = (status) => {
     switch (status) {
@@ -172,8 +189,42 @@ export default function AllInvoicesView({
           </div>
         </div>
 
+        {/* Category Filter Tabs */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs border-t border-slate-800/80 pt-3 no-scrollbar">
+          <span className="text-[11px] text-slate-400 shrink-0 font-medium mr-1">Category:</span>
+          <button
+            type="button"
+            onClick={() => setSelectedCategory('All')}
+            className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all ${
+              selectedCategory === 'All'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                : 'bg-slate-800/80 text-slate-300 hover:bg-slate-750'
+            }`}
+          >
+            All Categories
+          </button>
+          {Object.values(CATEGORY_CONFIG).map((cfg) => {
+            const isSelected = selectedCategory === cfg.id;
+            return (
+              <button
+                key={cfg.id}
+                type="button"
+                onClick={() => setSelectedCategory(cfg.id)}
+                className={`px-3 py-1.5 rounded-lg font-medium whitespace-nowrap transition-all ${
+                  isSelected
+                    ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                    : 'bg-slate-800/80 text-slate-300 hover:bg-slate-750'
+                }`}
+              >
+                {cfg.label}
+              </button>
+            );
+          })}
+        </div>
+
         {/* Status Filter Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs border-t border-slate-800/80 pt-3">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+          <span className="text-[11px] text-slate-400 shrink-0 font-medium mr-1">Status:</span>
           {['All', INVOICE_STATUSES.PAID, INVOICE_STATUSES.PENDING, INVOICE_STATUSES.OVERDUE, INVOICE_STATUSES.DRAFT].map((status) => {
             const count = status === 'All'
               ? invoices.length

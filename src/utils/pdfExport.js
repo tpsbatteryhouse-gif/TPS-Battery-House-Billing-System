@@ -3,6 +3,7 @@ import html2canvas from 'html2canvas';
 import QRCode from 'qrcode';
 import { calculateInvoiceTotals, buildUpiUri } from './gstCalculations.js';
 import { formatNumber } from './numberToWords.js';
+import { formatItemSpecifications } from './categories.js';
 
 /**
  * Builds a vector-based, lightweight, selectable-text A4 PDF using jsPDF.
@@ -268,9 +269,15 @@ export async function generateVectorPdf(invoice, business, invoiceCopy = 'Origin
   const descColW = totals.isInterstate ? 66 : 64;
 
   totals.computedItems.forEach((item, idx) => {
-    const descLines = doc.splitTextToSize(item.name || '', descColW - 3);
+    const specsText = formatItemSpecifications(item);
+    const hasSpecs = Boolean(specsText);
     const hasNotes = Boolean(item.serialNo || item.warranty);
-    const rowHeight = Math.max(7, descLines.length * 3.5 + (hasNotes ? 3.5 : 0) + 2);
+    const descLines = doc.splitTextToSize(item.name || '', descColW - 3);
+    const specsLines = hasSpecs ? doc.splitTextToSize(specsText, descColW - 3) : [];
+    const rowHeight = Math.max(
+      7,
+      descLines.length * 3.4 + (hasSpecs ? specsLines.length * 2.8 : 0) + (hasNotes ? 3.0 : 0) + 2.5
+    );
 
     // Check pagination: if next item would collide with bottom
     if (y + rowHeight + 15 > pageHeight - margin) {
@@ -303,17 +310,28 @@ export async function generateVectorPdf(invoice, business, invoiceCopy = 'Origin
     doc.text(String(idx + 1), cellX + 4, rowStartY + 3.8, { align: 'center' });
     cellX += 8;
 
-    // Description
+    // Description & Technical Specifications
     doc.setFont('helvetica', 'bold');
     doc.text(descLines, cellX + 1.5, rowStartY + 3.8);
-    if (hasNotes) {
+
+    let currentLineY = rowStartY + 3.8 + descLines.length * 3.2;
+
+    if (hasSpecs) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.2);
+      doc.setTextColor(...darkCharcoal);
+      doc.text(specsLines, cellX + 1.5, currentLineY);
+      currentLineY += specsLines.length * 2.8;
+    }
+
+    if (hasNotes) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(6.0);
       doc.setTextColor(...mutedText);
       const noteParts = [];
       if (item.serialNo) noteParts.push(`SN: ${item.serialNo}`);
       if (item.warranty) noteParts.push(`Warranty: ${item.warranty}`);
-      doc.text(noteParts.join(' | '), cellX + 1.5, rowStartY + 3.8 + descLines.length * 3.2);
+      doc.text(noteParts.join(' | '), cellX + 1.5, currentLineY);
     }
     cellX += descColW;
 

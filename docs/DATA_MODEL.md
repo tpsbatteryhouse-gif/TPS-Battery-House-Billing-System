@@ -1,6 +1,6 @@
 # Data Model Specification — TPS BATTERYS HOUSE
 
-This document defines the schema, data types, validation rules, and persistence keys used throughout the application.
+This document defines the schema, data types, validation rules, category metadata, and persistence keys used throughout the multi-category application.
 
 ---
 
@@ -8,8 +8,9 @@ This document defines the schema, data types, validation rules, and persistence 
 
 | Key | Format | Default Behavior if Missing |
 | :--- | :--- | :--- |
-| `tps_invoice_records` | JSON Array of `Invoice` objects | Initialized with `INITIAL_MOCK_INVOICES` on first run. If existing key is `[]`, it remains empty. |
-| `tps_invoice_draft` | Single JSON `Invoice` object | Initialized with `getSampleInvoiceData()`. |
+| `tps_invoice_records` | JSON Array of `Invoice` objects | Initialized with `INITIAL_MOCK_INVOICES`. Existing legacy records lacking `category` are safely normalized upon reading. |
+| `tps_product_catalog` | JSON Array of `ProductCatalogItem` objects | Initialized with `INITIAL_PRODUCT_CATALOG` (14 pre-seeded TPS products). |
+| `tps_invoice_draft` | Single JSON `Invoice` object | Initialized with `getSampleInvoiceData()` (multi-category sample). |
 | `tps_business_profile` | Single JSON `BusinessProfile` object | Initialized with `DEFAULT_BUSINESS`. |
 
 ---
@@ -25,26 +26,74 @@ This document defines the schema, data types, validation rules, and persistence 
 | `invoiceDate` | `String` (ISO Date `YYYY-MM-DD`) | Yes | Date bill was issued. Must be a valid date string. |
 | `dueDate` | `String` (ISO Date `YYYY-MM-DD`) | Yes | Payment due date. Must be equal to or later than `invoiceDate`. |
 | `paymentStatus` | `String` (Enum) | Yes | `'Draft'` \| `'Pending'` \| `'Paid'` \| `'Overdue'`. |
-| `paymentMode` | `String` (Enum) | Yes | `'Cash'` \| `'UPI / QR Code'` \| `'Bank Transfer (NEFT/RTGS/IMPS)'` \| `'Credit / Post-dated'` \| `'Cheque'`. |
+| `paymentMode` | `String` (Enum) | Yes | `'Cash'` \| `'UPI / QR Code'` \| `'Bank Transfer'` \| `'Credit'`. |
 | `placeOfSupply` | `String` | No | Default: `'Kerala (32)'`. |
 | `reverseCharge` | `String` | No | `'No'` (default) or `'Yes'`. |
 | `customer` | `Customer` | Yes | Embedded customer record object. |
-| `items` | `Array<LineItem>` | Yes | Array of purchased goods/services. Must have at least 1 item. |
-| `scrapExchange` | `ScrapExchange` | No | Optional old battery trade-in details. |
-| `additionalDiscount`| `Number` | No | General concession in ₹ (must be >= 0). Default: `0`. |
+| `items` | `Array<LineItem>` | Yes | Array of purchased multi-category goods/services (minimum 1). |
+| `scrapExchange` | `ScrapExchange` | No | Battery-exclusive trade-in allowance details. |
+| `additionalDiscount`| `Number` | No | Special discount concession in ₹ (must be >= 0). Default: `0`. |
 | `roundOffManual` | `Number` \| `null` | No | Custom rounding adjustment in ₹. If `null`, auto-rounded to nearest rupee. |
 | `netPayable` | `Number` | Yes | Final payable amount in ₹ (calculated). |
 | `notes` | `String` | No | Customer warranty remark or service note. |
-| `createdAt` | `String` (ISO 8601) | Yes | Creation timestamp (e.g., `2026-10-29T10:00:00.000Z`). |
+| `createdAt` | `String` (ISO 8601) | Yes | Creation timestamp. |
 
 ---
 
-### B. Customer Record (`Customer`)
+### B. Multi-Category Line Item Entity (`LineItem`)
+
+| Field | Type | Required | Description & Validation Rules |
+| :--- | :--- | :--- | :--- |
+| `id` | `String` | Yes | Unique item ID (e.g., `item-101`). |
+| `name` | `String` | Yes | Product name / service description. |
+| `category` | `String` (Enum) | Yes | `'battery'` \| `'inverter'` \| `'solar'` \| `'services'`. If absent in legacy data, safely inferred via `normalizeInvoiceItem`. |
+| `subcategory` | `String` | No | Detailed subcategory (e.g., `'Tubular Battery'`, `'Solar Installation'`). |
+| `brand` | `String` | No | Brand name (e.g., `'Exide'`, `'Luminous'`, `'Waaree'`, `'Tata'`). |
+| `model` | `String` | No | Model designation (e.g., `'IT500'`, `'EcoVolt 1050'`, `'WXS-550'`). |
+| `specs` | `Object` | Yes | Key-value technical specifications (e.g., `{ capacity: '150Ah', voltage: '12V' }`). |
+| `hsn` | `String` | Yes | HSN/SAC code (e.g., `8507`, `8504`, `8541`, `9954`). |
+| `serialNo` | `String` | No | Serial number(s) or job reference (not forced on services). |
+| `warranty` | `String` | No | Warranty duration (e.g., `'36 Months'`, `'25 Years Performance'`). |
+| `qty` | `Number` | Yes | Quantity purchased. Must be integer >= 1. |
+| `unit` | `String` | Yes | Unit of measurement (`'Nos'`, `'Set'`, `'Piece'`, `'Watt'`, `'kW'`, `'Meter'`, `'Job'`, `'Service'`). |
+| `rate` | `Number` | Yes | Unit selling price in ₹ (must be >= 0). |
+| `isTaxInclusive` | `Boolean` | Yes | If `true`, rate includes GST (MRP). If `false`, GST is added on top. |
+| `gstRate` | `Number` | Yes | Tax slab percentage (`28`, `18`, `12`, `5`, `0`). |
+
+---
+
+### C. Product Catalog Item Entity (`ProductCatalogItem`)
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `String` | Yes | Unique product identifier (e.g., `prod-001`). |
+| `sku` | `String` | Yes | Product SKU (e.g., `TPS-BAT-150-IT500`). |
+| `name` | `String` | Yes | Full product or service title. |
+| `category` | `String` (Enum) | Yes | `'battery'` \| `'inverter'` \| `'solar'` \| `'services'`. |
+| `subcategory` | `String` | Yes | Subcategory string from `CATEGORY_CONFIG`. |
+| `brand` | `String` | No | Manufacturer brand name. |
+| `model` | `String` | No | Model number or series. |
+| `description`| `String` | No | Marketing description or details. |
+| `specs` | `Object` | Yes | Category technical specifications. |
+| `unit` | `String` | Yes | Default unit of measurement. |
+| `hsn` | `String` | Yes | Statutory HSN/SAC code. |
+| `sellingPrice`| `Number`| Yes | Default retail selling price in ₹. |
+| `costPrice` | `Number` | No | Internal purchase cost (never shown on customer invoices). |
+| `gstRate` | `Number` | Yes | Configurable GST rate percentage. |
+| `isTaxInclusive`| `Boolean`| Yes | Whether selling price includes GST. |
+| `warranty` | `String` | No | Standard warranty duration. |
+| `status` | `String` | Yes | `'active'` \| `'inactive'`. |
+| `createdAt` | `String` | Yes | ISO creation timestamp. |
+| `updatedAt` | `String` | No | ISO last updated timestamp. |
+
+---
+
+### D. Customer Record (`Customer`)
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | `name` | `String` | Yes | Customer or company name. Cannot be blank. |
-| `phone` | `String` | No | 10-digit mobile number for SMS/WhatsApp. |
+| `phone` | `String` | No | 10-digit mobile number for contact & WhatsApp. |
 | `address` | `String` | No | Street address or building name. |
 | `city` | `String` | No | City or town (e.g., `'Thrithala'`). |
 | `district` | `String` | No | District (e.g., `'Palakkad'`). |
@@ -55,122 +104,10 @@ This document defines the schema, data types, validation rules, and persistence 
 
 ---
 
-### C. Line Item Entity (`LineItem`)
-
-| Field | Type | Required | Description & Validation Rules |
-| :--- | :--- | :--- | :--- |
-| `id` | `String` | Yes | Unique item ID (e.g., `item-101`). |
-| `name` | `String` | Yes | Product name / description (cannot be empty). |
-| `hsn` | `String` | Yes | Harmonized System of Nomenclature code (e.g., `8507` for batteries, `8504` for inverters). |
-| `serialNo` | `String` | No | Manufacturer serial number or barcode for warranty registration. |
-| `warranty` | `String` | No | Duration of warranty (e.g., `'36 Months Replacement'`). |
-| `qty` | `Number` | Yes | Quantity purchased. Must be an integer >= 1. |
-| `unit` | `String` | Yes | Unit of measurement (`'Nos'`, `'Set'`, `'Pcs'`). |
-| `rate` | `Number` | Yes | Unit price in ₹ (must be >= 0). |
-| `isTaxInclusive` | `Boolean` | Yes | If `true`, `rate` represents the gross retail price including GST. If `false`, GST is added on top. |
-| `gstRate` | `Number` | Yes | Tax slab percentage (`28`, `18`, `12`, `5`, `0`). |
-
----
-
-### D. Scrap Battery Exchange Entity (`ScrapExchange`)
+### E. Scrap Battery Exchange Entity (`ScrapExchange`)
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | `enabled` | `Boolean` | Yes | Flag indicating whether old battery scrap buyback was applied. |
 | `description` | `String` | No | Scrap battery model or capacity (e.g., `'Old 150Ah Scrap Battery Buyback'`). |
-| `amount` | `Number` | Yes | Scrap credit deducted from invoice total in ₹ (must be >= 0). |
-
----
-
-### E. Simulated Operator Profile (`MockUser`)
-
-| Field | Type | Value / Description |
-| :--- | :--- | :--- |
-| `id` | `String` | `'usr-001'` |
-| `name` | `String` | `'Alex Johnson'` |
-| `role` | `String` | `'Administrator'` |
-| `email` | `String` | `'alex@example.com'` |
-| `phone` | `String` | `'+91 9846830532'` |
-| `avatarInitials`| `String` | `'AJ'` |
-| `storeName` | `String` | `'TPS BATTERYS HOUSE'` |
-| `storeBranch` | `String` | `'Padinarangadi, Thrithala, Palakkad'` |
-| `isMockUser` | `Boolean` | `true` |
-
----
-
-## 3. Sanitized JSON Example
-
-```json
-{
-  "id": "inv-1793202930-101",
-  "invoiceNumber": "TPS/2026-27/001",
-  "invoiceDate": "2026-10-28",
-  "dueDate": "2026-10-28",
-  "paymentMode": "Cash",
-  "paymentStatus": "Paid",
-  "placeOfSupply": "Kerala (32)",
-  "reverseCharge": "No",
-  "customer": {
-    "name": "Rajesh K.",
-    "phone": "9876543210",
-    "address": "Near Old Bus Stand, Thrithala Road",
-    "city": "Thrithala",
-    "district": "Palakkad",
-    "state": "Kerala",
-    "stateCode": "32",
-    "pincode": "679534",
-    "gstin": ""
-  },
-  "items": [
-    {
-      "id": "item-101",
-      "name": "Fuze 1100 Inverter + 150 Ah Tubular Battery (Combo Set)",
-      "hsn": "8507",
-      "serialNo": "FZ-2026-98124 / BAT-150-7762",
-      "warranty": "36 Months Replacement",
-      "qty": 1,
-      "unit": "Set",
-      "rate": 22000,
-      "isTaxInclusive": true,
-      "gstRate": 28
-    }
-  ],
-  "scrapExchange": {
-    "enabled": true,
-    "description": "Old 150Ah Scrap Battery Buyback (Exchange Discount)",
-    "amount": 2000
-  },
-  "additionalDiscount": 0,
-  "roundOffManual": null,
-  "netPayable": 20000,
-  "notes": "Thank you for choosing TPS BATTERYS HOUSE.",
-  "createdAt": "2026-10-28T14:30:00.000Z"
-}
-```
-
----
-
-## 4. Invoice Number Generation Algorithm
-
-Invoice numbers are generated dynamically using a collision-free sequential algorithm:
-
-```javascript
-const getNextInvoiceNumber = (invoices, prefix = 'TPS/2026-27/') => {
-  let maxSeq = 0;
-  invoices.forEach((inv) => {
-    const invNum = inv.invoiceNumber || '';
-    if (invNum.startsWith(prefix)) {
-      const numPart = invNum.slice(prefix.length);
-      const parsed = parseInt(numPart, 10);
-      if (!isNaN(parsed) && parsed > maxSeq) {
-        maxSeq = parsed;
-      }
-    }
-  });
-  const nextSeq = maxSeq + 1;
-  return `${prefix}${String(nextSeq).padStart(3, '0')}`;
-};
-```
-
-### Advantages
-- Even if earlier invoices in the list are deleted or re-ordered, the generator always calculates the next integer strictly higher than any existing record, preventing collisions.
+| `amount` | `Number` | Yes | Scrap trade-in allowance deducted from invoice total in ₹ (must be >= 0). |

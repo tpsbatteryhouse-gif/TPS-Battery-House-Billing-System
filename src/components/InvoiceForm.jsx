@@ -11,26 +11,40 @@ import {
   User,
   Package,
   ArrowRightLeft,
+  BatteryCharging,
+  Zap,
+  Sun,
+  Wrench,
+  Layers,
+  Info,
 } from 'lucide-react';
 import {
   ITEM_PRESETS,
   PAYMENT_MODES,
-  UNITS_LIST,
   GST_RATES,
 } from '../utils/defaults';
+import {
+  PRODUCT_CATEGORIES,
+  CATEGORY_CONFIG,
+  MULTI_CATEGORY_UNITS,
+} from '../utils/categories';
 import { formatNumber } from '../utils/numberToWords';
 import { calculateLineItem } from '../utils/gstCalculations';
 import { generateId } from '../utils/idGenerator';
+import CatalogItemPickerModal from './CatalogItemPickerModal';
 
 export default function InvoiceForm({
   invoice,
   setInvoice,
+  catalog = [],
   onSave,
   onReset,
   onLoadSample,
   isSaved,
 }) {
   const [activeTab, setActiveTab] = useState('items'); // 'general', 'items', 'adjustments'
+  const [isCatalogPickerOpen, setIsCatalogPickerOpen] = useState(false);
+  const [presetCategoryFilter, setPresetCategoryFilter] = useState('all');
 
   const updateField = (path, value) => {
     setInvoice((prev) => {
@@ -46,32 +60,56 @@ export default function InvoiceForm({
     });
   };
 
-  const addItem = (preset = null) => {
-    const newItem = preset
-      ? {
-          id: generateId('item'),
-          name: preset.name,
-          hsn: preset.hsn,
-          serialNo: '',
-          warranty: preset.warranty,
-          qty: 1,
-          unit: preset.unit,
-          rate: preset.price,
-          isTaxInclusive: preset.isTaxInclusive,
-          gstRate: preset.gstRate,
-        }
-      : {
-          id: generateId('item'),
-          name: '',
-          hsn: '8507',
-          serialNo: '',
-          warranty: '36 Months',
-          qty: 1,
-          unit: 'Nos',
-          rate: 0,
-          isTaxInclusive: true,
-          gstRate: 28,
-        };
+  const addItem = (preset = null, categoryOverride = null) => {
+    if (preset) {
+      const cat = preset.category || PRODUCT_CATEGORIES.BATTERY;
+      const catCfg = CATEGORY_CONFIG[cat] || CATEGORY_CONFIG[PRODUCT_CATEGORIES.BATTERY];
+
+      const newItem = {
+        id: generateId('item'),
+        name: preset.name,
+        category: cat,
+        subcategory: preset.subcategory || catCfg.subcategories[0] || '',
+        brand: preset.brand || '',
+        model: preset.model || '',
+        specs: { ...(preset.specs || {}) },
+        hsn: preset.hsn || catCfg.defaultHsn,
+        serialNo: '',
+        warranty: preset.warranty || '36 Months',
+        qty: 1,
+        unit: preset.unit || catCfg.defaultUnit || 'Nos',
+        rate: preset.price || preset.sellingPrice || 0,
+        isTaxInclusive: preset.isTaxInclusive !== undefined ? preset.isTaxInclusive : true,
+        gstRate: preset.gstRate || catCfg.defaultGstRate || 28,
+      };
+
+      setInvoice((prev) => ({
+        ...prev,
+        items: [...prev.items, newItem],
+      }));
+      return;
+    }
+
+    const defaultCat = categoryOverride || PRODUCT_CATEGORIES.BATTERY;
+    const catCfg = CATEGORY_CONFIG[defaultCat] || CATEGORY_CONFIG[PRODUCT_CATEGORIES.BATTERY];
+
+    const newItem = {
+      id: generateId('item'),
+      name: '',
+      category: defaultCat,
+      subcategory: catCfg.subcategories[0] || '',
+      brand: '',
+      model: '',
+      specs: {},
+      hsn: catCfg.defaultHsn,
+      serialNo: '',
+      warranty: defaultCat === PRODUCT_CATEGORIES.SERVICES ? 'Installation Warranty' : '36 Months',
+      qty: 1,
+      unit: catCfg.defaultUnit,
+      rate: 0,
+      isTaxInclusive: true,
+      gstRate: catCfg.defaultGstRate,
+    };
 
     setInvoice((prev) => ({
       ...prev,
@@ -90,6 +128,38 @@ export default function InvoiceForm({
     });
   };
 
+  const updateItemSpec = (index, specField, value) => {
+    setInvoice((prev) => {
+      const items = [...prev.items];
+      items[index] = {
+        ...items[index],
+        specs: {
+          ...(items[index].specs || {}),
+          [specField]: value,
+        },
+      };
+      return { ...prev, items };
+    });
+  };
+
+  const changeItemCategory = (index, newCategory) => {
+    const catCfg = CATEGORY_CONFIG[newCategory] || CATEGORY_CONFIG[PRODUCT_CATEGORIES.BATTERY];
+    setInvoice((prev) => {
+      const items = [...prev.items];
+      const cur = items[index];
+      items[index] = {
+        ...cur,
+        category: newCategory,
+        subcategory: catCfg.subcategories[0] || '',
+        hsn: catCfg.defaultHsn,
+        gstRate: catCfg.defaultGstRate,
+        unit: catCfg.defaultUnit,
+        specs: {},
+      };
+      return { ...prev, items };
+    });
+  };
+
   const removeItem = (index) => {
     if (invoice.items.length <= 1) {
       alert('Invoice must have at least one line item.');
@@ -99,6 +169,29 @@ export default function InvoiceForm({
       ...prev,
       items: prev.items.filter((_, i) => i !== index),
     }));
+  };
+
+  const handlePickFromCatalog = (product) => {
+    addItem(product);
+  };
+
+  const hasBatteryItem = (invoice.items || []).some(
+    (item) => (item.category || PRODUCT_CATEGORIES.BATTERY) === PRODUCT_CATEGORIES.BATTERY
+  );
+
+  const getCategoryIcon = (category, className = 'w-3.5 h-3.5') => {
+    switch (category) {
+      case PRODUCT_CATEGORIES.BATTERY:
+        return <BatteryCharging className={className} />;
+      case PRODUCT_CATEGORIES.INVERTER:
+        return <Zap className={className} />;
+      case PRODUCT_CATEGORIES.SOLAR:
+        return <Sun className={className} />;
+      case PRODUCT_CATEGORIES.SERVICES:
+        return <Wrench className={className} />;
+      default:
+        return <Package className={className} />;
+    }
   };
 
   return (
@@ -111,7 +204,7 @@ export default function InvoiceForm({
           </div>
           <div>
             <h2 className="text-base font-bold text-white tracking-tight">Invoice Details & Billing</h2>
-            <p className="text-xs text-slate-400">Fill particulars or choose quick presets</p>
+            <p className="text-xs text-slate-400">Multi-Category: Battery • Inverter • Solar • Services</p>
           </div>
         </div>
 
@@ -119,7 +212,7 @@ export default function InvoiceForm({
           <button
             type="button"
             onClick={onLoadSample}
-            title="Load the Fuze 1100 Combo & Rajesh K. sample bill"
+            title="Load the comprehensive multi-category sample bill"
             className="px-2.5 py-1.5 text-xs font-medium text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg flex items-center gap-1.5 transition-colors"
           >
             <Sparkles className="w-3.5 h-3.5" />
@@ -198,7 +291,7 @@ export default function InvoiceForm({
           }`}
         >
           <ArrowRightLeft className="w-3.5 h-3.5" />
-          <span>Scrap Exchange & Discounts</span>
+          <span>Scrap & Discounts</span>
           {invoice.scrapExchange?.enabled && (
             <span className="w-2 h-2 rounded-full bg-amber-500"></span>
           )}
@@ -210,16 +303,59 @@ export default function InvoiceForm({
         {/* TAB 1: LINE ITEMS */}
         {activeTab === 'items' && (
           <div className="space-y-4">
-            {/* Presets Quick Picker */}
-            <div className="bg-slate-800/60 p-3 rounded-lg border border-slate-700/60">
-              <div className="flex items-center justify-between mb-2">
+            {/* Catalog & Quick Presets Picker */}
+            <div className="bg-slate-800/60 p-3 rounded-xl border border-slate-700/60 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                  Quick Item Catalogue (Click to Add):
+                  Quick Item Catalogue & Presets:
                 </span>
+
+                <button
+                  type="button"
+                  onClick={() => setIsCatalogPickerOpen(true)}
+                  className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Browse Full Catalog</span>
+                </button>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {ITEM_PRESETS.map((preset, idx) => (
+
+              {/* Category Filter for Presets */}
+              <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[11px] no-scrollbar">
+                <button
+                  type="button"
+                  onClick={() => setPresetCategoryFilter('all')}
+                  className={`px-2 py-0.5 rounded transition-all ${
+                    presetCategoryFilter === 'all'
+                      ? 'bg-amber-500 text-slate-950 font-bold'
+                      : 'bg-slate-900 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  All
+                </button>
+                {Object.values(CATEGORY_CONFIG).map((cfg) => (
+                  <button
+                    key={cfg.id}
+                    type="button"
+                    onClick={() => setPresetCategoryFilter(cfg.id)}
+                    className={`px-2 py-0.5 rounded transition-all flex items-center gap-1 ${
+                      presetCategoryFilter === cfg.id
+                        ? 'bg-amber-500 text-slate-950 font-bold'
+                        : 'bg-slate-900 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {getCategoryIcon(cfg.id, 'w-3 h-3')}
+                    <span>{cfg.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Preset Chips */}
+              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                {ITEM_PRESETS.filter((p) =>
+                  presetCategoryFilter === 'all' ? true : p.category === presetCategoryFilter
+                ).map((preset, idx) => (
                   <button
                     key={idx}
                     type="button"
@@ -228,33 +364,57 @@ export default function InvoiceForm({
                   >
                     <span>+</span>
                     <span className="truncate max-w-[200px]">{preset.name}</span>
-                    <span className="text-[10px] text-amber-400/80 font-mono">₹{preset.price.toLocaleString('en-IN')}</span>
+                    <span className="text-[10px] text-amber-400/80 font-mono">
+                      ₹{preset.price.toLocaleString('en-IN')}
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Dynamic Items Cards/Table */}
-            <div className="space-y-3">
+            {/* Dynamic Items Cards */}
+            <div className="space-y-4">
               {invoice.items.map((item, idx) => {
                 const previewCalcs = calculateLineItem(item);
+                const currentCat = item.category || PRODUCT_CATEGORIES.BATTERY;
+                const catCfg = CATEGORY_CONFIG[currentCat] || CATEGORY_CONFIG[PRODUCT_CATEGORIES.BATTERY];
+
                 return (
                   <div
                     key={item.id || idx}
-                    className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 space-y-3 relative group hover:border-slate-600 transition-all shadow-md"
+                    className="bg-slate-800/80 border border-slate-700/80 rounded-xl p-3.5 space-y-3.5 relative group hover:border-slate-600 transition-all shadow-md"
                   >
-                    {/* Item Row Header */}
-                    <div className="flex items-center justify-between border-b border-slate-700/60 pb-2">
+                    {/* Item Row Header: Category Selector Pills + Total + Remove */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/60 pb-2.5">
                       <div className="flex items-center gap-2">
                         <span className="w-5 h-5 rounded-full bg-slate-700 text-amber-400 text-xs font-bold flex items-center justify-center">
                           {idx + 1}
                         </span>
-                        <span className="text-xs font-semibold text-slate-300">
-                          Item #{idx + 1}
-                        </span>
+
+                        {/* Category Selector Pills */}
+                        <div className="flex items-center bg-slate-950/80 p-0.5 rounded-lg border border-slate-800">
+                          {Object.values(CATEGORY_CONFIG).map((cfg) => {
+                            const isSelected = currentCat === cfg.id;
+                            return (
+                              <button
+                                key={cfg.id}
+                                type="button"
+                                onClick={() => changeItemCategory(idx, cfg.id)}
+                                className={`px-2 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1 transition-all ${
+                                  isSelected
+                                    ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                                    : 'text-slate-400 hover:text-white'
+                                }`}
+                              >
+                                {getCategoryIcon(cfg.id, 'w-3 h-3')}
+                                <span>{cfg.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2.5">
                         <span className="text-xs font-mono font-bold text-amber-400">
                           Total: ₹{formatNumber(previewCalcs.lineTotal)}
                         </span>
@@ -269,79 +429,266 @@ export default function InvoiceForm({
                       </div>
                     </div>
 
-                    {/* Item Name & Suggestions */}
+                    {/* Item Name / Description */}
                     <div className="space-y-1">
                       <label className="text-[11px] font-medium text-slate-400">
-                        Item Description / Product Name *
+                        {currentCat === PRODUCT_CATEGORIES.SERVICES
+                          ? 'Service Title / Work Description *'
+                          : 'Product Description / Model Name *'}
                       </label>
                       <input
                         type="text"
                         value={item.name}
                         onChange={(e) => updateItem(idx, 'name', e.target.value)}
-                        placeholder="e.g. Fuze 1100 Inverter and Battery 150 Ah"
+                        placeholder={
+                          currentCat === PRODUCT_CATEGORIES.BATTERY
+                            ? 'e.g. Exide InvaTubular IT500 150Ah Battery'
+                            : currentCat === PRODUCT_CATEGORIES.INVERTER
+                            ? 'e.g. Luminous EcoVolt Neo 1050 Sine Wave Inverter'
+                            : currentCat === PRODUCT_CATEGORIES.SOLAR
+                            ? 'e.g. Tata Power Solar 550W Mono PERC Panel'
+                            : 'e.g. Complete Solar Inverter & Battery Installation'
+                        }
                         className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                       />
                     </div>
 
-                    {/* HSN Code & Warranty & Serial No */}
+                    {/* Category-Specific Dynamic Specifications */}
+                    <div className="p-2.5 bg-slate-950/60 rounded-lg border border-slate-800/80 space-y-2">
+                      <div className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        <span>{catCfg.label} Specifications</span>
+                      </div>
+
+                      {/* BATTERY FIELDS */}
+                      {currentCat === PRODUCT_CATEGORIES.BATTERY && (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Capacity</label>
+                            <input
+                              type="text"
+                              value={item.specs?.capacity || ''}
+                              onChange={(e) => updateItemSpec(idx, 'capacity', e.target.value)}
+                              placeholder="e.g. 150Ah"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Voltage</label>
+                            <input
+                              type="text"
+                              value={item.specs?.voltage || ''}
+                              onChange={(e) => updateItemSpec(idx, 'voltage', e.target.value)}
+                              placeholder="e.g. 12V"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Technology</label>
+                            <select
+                              value={item.specs?.batteryType || 'Tall Tubular'}
+                              onChange={(e) => updateItemSpec(idx, 'batteryType', e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            >
+                              <option value="Tall Tubular">Tall Tubular</option>
+                              <option value="Short Tubular">Short Tubular</option>
+                              <option value="Flat Plate">Flat Plate</option>
+                              <option value="SMF / VRLA">SMF / VRLA</option>
+                              <option value="Lithium (LiFePO4)">Lithium (LiFePO4)</option>
+                            </select>
+                          </div>
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Brand</label>
+                            <input
+                              type="text"
+                              value={item.brand || ''}
+                              onChange={(e) => updateItem(idx, 'brand', e.target.value)}
+                              placeholder="e.g. Exide, Amaron"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* INVERTER FIELDS */}
+                      {currentCat === PRODUCT_CATEGORIES.INVERTER && (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Rating (VA)</label>
+                            <input
+                              type="text"
+                              value={item.specs?.capacityVa || ''}
+                              onChange={(e) => updateItemSpec(idx, 'capacityVa', e.target.value)}
+                              placeholder="e.g. 1100VA"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Power (Watts)</label>
+                            <input
+                              type="text"
+                              value={item.specs?.powerWatts || ''}
+                              onChange={(e) => updateItemSpec(idx, 'powerWatts', e.target.value)}
+                              placeholder="e.g. 900W"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Waveform</label>
+                            <select
+                              value={item.specs?.waveform || 'Pure Sine Wave'}
+                              onChange={(e) => updateItemSpec(idx, 'waveform', e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            >
+                              <option value="Pure Sine Wave">Pure Sine Wave</option>
+                              <option value="Square Wave">Square Wave</option>
+                              <option value="Modified Sine">Modified Sine</option>
+                              <option value="Hybrid Dual">Hybrid Dual</option>
+                            </select>
+                          </div>
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Brand</label>
+                            <input
+                              type="text"
+                              value={item.brand || ''}
+                              onChange={(e) => updateItem(idx, 'brand', e.target.value)}
+                              placeholder="e.g. Luminous, Microtek"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SOLAR FIELDS */}
+                      {currentCat === PRODUCT_CATEGORIES.SOLAR && (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Capacity (Wp)</label>
+                            <input
+                              type="text"
+                              value={item.specs?.ratedCapacityWp || ''}
+                              onChange={(e) => updateItemSpec(idx, 'ratedCapacityWp', e.target.value)}
+                              placeholder="e.g. 550Wp"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Technology</label>
+                            <select
+                              value={item.specs?.panelTechnology || 'Mono PERC'}
+                              onChange={(e) => updateItemSpec(idx, 'panelTechnology', e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            >
+                              <option value="Mono PERC">Mono PERC</option>
+                              <option value="Bifacial Mono">Bifacial Mono</option>
+                              <option value="TopCon N-Type">TopCon N-Type</option>
+                              <option value="Polycrystalline">Polycrystalline</option>
+                            </select>
+                          </div>
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">System Capacity</label>
+                            <input
+                              type="text"
+                              value={item.specs?.systemCapacityKw || ''}
+                              onChange={(e) => updateItemSpec(idx, 'systemCapacityKw', e.target.value)}
+                              placeholder="e.g. 3kW"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Brand</label>
+                            <input
+                              type="text"
+                              value={item.brand || ''}
+                              onChange={(e) => updateItem(idx, 'brand', e.target.value)}
+                              placeholder="e.g. Tata, Adani, Loom"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SERVICES FIELDS */}
+                      {currentCat === PRODUCT_CATEGORIES.SERVICES && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Service Category / Scope</label>
+                            <input
+                              type="text"
+                              value={item.specs?.serviceScope || ''}
+                              onChange={(e) => updateItemSpec(idx, 'serviceScope', e.target.value)}
+                              placeholder="e.g. Rooftop Mounting, DC Cabling & Inverter Connection"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div className="space-y-0.5">
+                            <label className="text-[10px] text-slate-400">Service Work Warranty</label>
+                            <input
+                              type="text"
+                              value={item.warranty || ''}
+                              onChange={(e) => updateItem(idx, 'warranty', e.target.value)}
+                              placeholder="e.g. 1 Year Workmanship Warranty"
+                              className="w-full bg-slate-900 border border-slate-700/80 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* HSN Code & Warranty & Serial No (if physical) */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                       <div className="space-y-1">
                         <div className="flex justify-between items-center">
-                          <label className="text-[11px] font-medium text-slate-400">HSN Code</label>
-                          <div className="text-[10px] space-x-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                updateItem(idx, 'hsn', '8507');
-                                updateItem(idx, 'gstRate', 28);
-                              }}
-                              className="text-amber-400/80 hover:text-amber-300 underline"
-                            >
-                              8507 (Battery)
-                            </button>
-                            <span>|</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                updateItem(idx, 'hsn', '8504');
-                                updateItem(idx, 'gstRate', 18);
-                              }}
-                              className="text-amber-400/80 hover:text-amber-300 underline"
-                            >
-                              8504 (Inverter)
-                            </button>
-                          </div>
+                          <label className="text-[11px] font-medium text-slate-400">HSN / SAC</label>
+                          <span className="text-[10px] text-amber-400/80 font-mono">
+                            {catCfg.label}: {catCfg.defaultHsn}
+                          </span>
                         </div>
                         <input
                           type="text"
                           value={item.hsn}
                           onChange={(e) => updateItem(idx, 'hsn', e.target.value)}
-                          placeholder="8507"
+                          placeholder={catCfg.defaultHsn}
                           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
                         />
                       </div>
 
+                      {/* Warranty */}
                       <div className="space-y-1">
-                        <label className="text-[11px] font-medium text-slate-400">Warranty Period</label>
+                        <label className="text-[11px] font-medium text-slate-400">Warranty</label>
                         <input
                           type="text"
                           value={item.warranty}
                           onChange={(e) => updateItem(idx, 'warranty', e.target.value)}
-                          placeholder="e.g. 36 Months Replacement"
+                          placeholder="e.g. 36 Months / 10 Years"
                           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
                         />
                       </div>
 
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-medium text-slate-400">Serial No / Batch</label>
-                        <input
-                          type="text"
-                          value={item.serialNo}
-                          onChange={(e) => updateItem(idx, 'serialNo', e.target.value)}
-                          placeholder="e.g. FZ-1100-8891 / BAT-150"
-                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
-                        />
-                      </div>
+                      {/* Serial Number (Only for physical products) */}
+                      {currentCat !== PRODUCT_CATEGORIES.SERVICES ? (
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium text-slate-400">Serial No / Batch</label>
+                          <input
+                            type="text"
+                            value={item.serialNo || ''}
+                            onChange={(e) => updateItem(idx, 'serialNo', e.target.value)}
+                            placeholder="e.g. BAT-2026-9021"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium text-slate-400">Technician / Job Ref</label>
+                          <input
+                            type="text"
+                            value={item.serialNo || ''}
+                            onChange={(e) => updateItem(idx, 'serialNo', e.target.value)}
+                            placeholder="e.g. JOB-SRV-042"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     {/* Qty, Unit, Rate, Tax Inclusive Toggle, GST Rate */}
@@ -353,7 +700,9 @@ export default function InvoiceForm({
                           min="1"
                           step="1"
                           value={item.qty}
-                          onChange={(e) => updateItem(idx, 'qty', Math.max(1, parseInt(e.target.value) || 1))}
+                          onChange={(e) =>
+                            updateItem(idx, 'qty', Math.max(1, parseInt(e.target.value) || 1))
+                          }
                           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white text-center focus:outline-none focus:border-amber-500"
                         />
                       </div>
@@ -365,7 +714,7 @@ export default function InvoiceForm({
                           onChange={(e) => updateItem(idx, 'unit', e.target.value)}
                           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
                         >
-                          {UNITS_LIST.map((u) => (
+                          {MULTI_CATEGORY_UNITS.map((u) => (
                             <option key={u} value={u}>
                               {u}
                             </option>
@@ -374,15 +723,15 @@ export default function InvoiceForm({
                       </div>
 
                       <div className="space-y-1 col-span-2 sm:col-span-1">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[11px] font-medium text-slate-400">Rate (₹)</label>
-                        </div>
+                        <label className="text-[11px] font-medium text-slate-400">Rate (₹)</label>
                         <input
                           type="number"
                           min="0"
                           step="0.01"
                           value={item.rate}
-                          onChange={(e) => updateItem(idx, 'rate', Math.max(0, parseFloat(e.target.value) || 0))}
+                          onChange={(e) =>
+                            updateItem(idx, 'rate', Math.max(0, parseFloat(e.target.value) || 0))
+                          }
                           className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white text-right focus:outline-none focus:border-amber-500"
                         />
                       </div>
@@ -411,7 +760,7 @@ export default function InvoiceForm({
                         >
                           {GST_RATES.map((r) => (
                             <option key={r} value={r}>
-                              {r}% GST {r === 28 ? '(Batteries)' : r === 18 ? '(Inverters)' : ''}
+                              {r}% GST {r === 28 ? '(Battery)' : r === 18 ? '(Inverter/Srv)' : r === 12 ? '(Solar)' : ''}
                             </option>
                           ))}
                         </select>
@@ -438,15 +787,20 @@ export default function InvoiceForm({
               })}
             </div>
 
-            {/* Add New Item Button */}
-            <button
-              type="button"
-              onClick={() => addItem()}
-              className="w-full py-2.5 border-2 border-dashed border-slate-700 hover:border-amber-500 text-slate-300 hover:text-amber-400 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all bg-slate-800/20 hover:bg-amber-500/5"
-            >
-              <Plus className="w-4 h-4" />
-              Add Another Line Item
-            </button>
+            {/* Add New Item Buttons (Per Category) */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+              {Object.values(CATEGORY_CONFIG).map((cfg) => (
+                <button
+                  key={cfg.id}
+                  type="button"
+                  onClick={() => addItem(null, cfg.id)}
+                  className="py-2.5 px-3 border border-dashed border-slate-700 hover:border-amber-500 text-slate-300 hover:text-amber-400 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all bg-slate-800/30 hover:bg-amber-500/10"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add {cfg.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -457,23 +811,22 @@ export default function InvoiceForm({
             <div className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/60 space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
                 <Receipt className="w-3.5 h-3.5" />
-                Invoice Metadata
+                Invoice Identification & Status
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-400">Invoice Number</label>
+                  <label className="text-[11px] font-medium text-slate-400">Invoice Number *</label>
                   <input
                     type="text"
                     value={invoice.invoiceNumber}
                     onChange={(e) => updateField('invoiceNumber', e.target.value)}
-                    placeholder="TPS/2026-27/001"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-400">Invoice Date</label>
+                  <label className="text-[11px] font-medium text-slate-400">Invoice Date *</label>
                   <input
                     type="date"
                     value={invoice.invoiceDate}
@@ -483,15 +836,41 @@ export default function InvoiceForm({
                 </div>
 
                 <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-slate-400">Due Date</label>
+                  <input
+                    type="date"
+                    value={invoice.dueDate}
+                    onChange={(e) => updateField('dueDate', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-slate-400">Payment Status</label>
+                  <select
+                    value={invoice.paymentStatus}
+                    onChange={(e) => updateField('paymentStatus', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-semibold text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="Paid">Paid (Completed)</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Draft">Draft</option>
+                    <option value="Cancelled">Cancelled</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
                   <label className="text-[11px] font-medium text-slate-400">Payment Mode</label>
                   <select
                     value={invoice.paymentMode}
                     onChange={(e) => updateField('paymentMode', e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
-                    {PAYMENT_MODES.map((pm) => (
-                      <option key={pm} value={pm}>
-                        {pm}
+                    {PAYMENT_MODES.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {mode}
                       </option>
                     ))}
                   </select>
@@ -550,7 +929,9 @@ export default function InvoiceForm({
                     <input
                       type="tel"
                       value={invoice.customer.phone}
-                      onChange={(e) => updateField('customer.phone', e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      onChange={(e) =>
+                        updateField('customer.phone', e.target.value.replace(/\D/g, '').slice(0, 10))
+                      }
                       placeholder="9876543210"
                       className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
                     />
@@ -597,8 +978,10 @@ export default function InvoiceForm({
                   <input
                     type="text"
                     value={invoice.customer.pincode}
-                    onChange={(e) => updateField('customer.pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="679534"
+                    onChange={(e) =>
+                      updateField('customer.pincode', e.target.value.replace(/\D/g, '').slice(0, 6))
+                    }
+                    placeholder="679552"
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -617,35 +1000,52 @@ export default function InvoiceForm({
 
               <div className="space-y-1 pt-1">
                 <label className="text-[11px] font-medium text-slate-400">
-                  Customer GSTIN (Optional — Leave blank for B2C Consumer)
+                  Customer GSTIN (For B2B Billing)
                 </label>
                 <input
                   type="text"
                   value={invoice.customer.gstin}
                   onChange={(e) => updateField('customer.gstin', e.target.value.toUpperCase())}
-                  placeholder="32AAAAA0000A1Z5"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white uppercase focus:outline-none focus:border-amber-500"
+                  placeholder="e.g. 32AABCU9603R1ZM (Leave blank for B2C consumer)"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white uppercase placeholder-slate-500 focus:outline-none focus:border-amber-500"
                 />
               </div>
+            </div>
+
+            {/* Terms & Notes */}
+            <div className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/60 space-y-2">
+              <label className="text-[11px] font-medium text-slate-400">Invoice Terms & Notes</label>
+              <textarea
+                rows={2}
+                value={invoice.notes}
+                onChange={(e) => updateField('notes', e.target.value)}
+                placeholder="Goods once sold will not be taken back without original bill."
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+              />
             </div>
           </div>
         )}
 
-        {/* TAB 3: ADJUSTMENTS & SCRAP EXCHANGE */}
+        {/* TAB 3: SCRAP EXCHANGE & ADJUSTMENTS */}
         {activeTab === 'adjustments' && (
           <div className="space-y-4">
-            {/* Scrap Battery Exchange Box */}
-            <div className="bg-slate-800/60 p-4 rounded-xl border border-amber-500/30 space-y-3">
+            {/* Scrap Buyback Section (Battery Exclusive) */}
+            <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/60 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 bg-amber-500/20 text-amber-400 rounded-lg">
                     <ArrowRightLeft className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                      Old Battery Scrap Buyback / Exchange
+                    <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                      <span>Old Battery Scrap Buyback / Exchange</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 lowercase">
+                        battery exclusive
+                      </span>
                     </h3>
-                    <p className="text-[11px] text-slate-400">Deduct scrap battery exchange value from bill</p>
+                    <p className="text-[11px] text-slate-400">
+                      Deduct scrap battery exchange trade-in value from invoice total
+                    </p>
                   </div>
                 </div>
 
@@ -658,6 +1058,16 @@ export default function InvoiceForm({
                   />
                   <div className="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
                 </label>
+              </div>
+
+              {/* Eligibility Hint */}
+              <div className="text-[11px] p-2 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center gap-2 text-slate-400">
+                <Info className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  {hasBatteryItem
+                    ? 'Eligible: Current bill includes battery products suitable for exchange deduction.'
+                    : 'Note: Scrap buyback is battery-specific and disabled for non-battery items, but can be enabled if the customer trades in an old battery.'}
+                </span>
               </div>
 
               {invoice.scrapExchange?.enabled && (
@@ -684,12 +1094,14 @@ export default function InvoiceForm({
                       min="0"
                       step="50"
                       value={invoice.scrapExchange.amount}
-                      onChange={(e) => updateField('scrapExchange.amount', Math.max(0, parseFloat(e.target.value) || 0))}
+                      onChange={(e) =>
+                        updateField('scrapExchange.amount', Math.max(0, parseFloat(e.target.value) || 0))
+                      }
                       placeholder="2000"
                       className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-3 py-2 text-sm font-mono font-bold text-amber-400 focus:outline-none focus:border-amber-400"
                     />
                     <div className="text-[10px] text-slate-400">
-                      Common scrap rates: 150Ah Tubular ~₹2,000 to ₹2,500; Car 35-45Ah ~₹500 to ₹900.
+                      Standard scrap rates: 150Ah Tubular ~₹2,000 to ₹2,500; Car 35-45Ah ~₹500 to ₹900.
                     </div>
                   </div>
                 </div>
@@ -711,7 +1123,9 @@ export default function InvoiceForm({
                     min="0"
                     step="10"
                     value={invoice.additionalDiscount}
-                    onChange={(e) => updateField('additionalDiscount', Math.max(0, parseFloat(e.target.value) || 0))}
+                    onChange={(e) =>
+                      updateField('additionalDiscount', Math.max(0, parseFloat(e.target.value) || 0))
+                    }
                     placeholder="0"
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
                   />
@@ -731,33 +1145,28 @@ export default function InvoiceForm({
                   <input
                     type="number"
                     step="0.01"
-                    value={invoice.roundOffManual === null ? '' : invoice.roundOffManual}
-                    onChange={(e) =>
-                      updateField(
-                        'roundOffManual',
-                        e.target.value === '' ? null : parseFloat(e.target.value) || 0
-                      )
-                    }
-                    placeholder="Auto rounded"
+                    value={invoice.roundOffManual ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      updateField('roundOffManual', val === '' ? null : parseFloat(val));
+                    }}
+                    placeholder="Auto (Nearest ₹1)"
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>
-              </div>
-
-              <div className="space-y-1 pt-1">
-                <label className="text-[11px] font-medium text-slate-400">Invoice Note / Customer Remark</label>
-                <textarea
-                  rows="2"
-                  value={invoice.notes}
-                  onChange={(e) => updateField('notes', e.target.value)}
-                  placeholder="Special instructions or service helpline note"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                ></textarea>
               </div>
             </div>
           </div>
         )}
       </div>
+
+      {/* Catalog Item Picker Modal */}
+      <CatalogItemPickerModal
+        isOpen={isCatalogPickerOpen}
+        onClose={() => setIsCatalogPickerOpen(false)}
+        catalog={catalog}
+        onSelectItem={handlePickFromCatalog}
+      />
     </div>
   );
 }

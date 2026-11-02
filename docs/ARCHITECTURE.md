@@ -1,12 +1,12 @@
-# System Architecture — TPS BATTERYS HOUSE
+# Multi-Category System Architecture — TPS BATTERYS HOUSE
 
-This document outlines the software architecture, component relationships, state ownership, and data lifecycle of the **TPS BATTERYS HOUSE** Invoice Management Application.
+This document details the multi-category software architecture, data models, component relationships, state ownership, and schema normalization of the **TPS BATTERYS HOUSE** Invoice Management Application.
 
 ---
 
 ## 1. High-Level Architecture
 
-The application is structured as a client-side Single Page Application (SPA) built on React 19 and Vite. State is managed reactively through React hooks (`useState`, `useEffect`, `useMemo`) and persisted synchronously in the browser's `localStorage`.
+The application is structured as a client-side Single Page Application (SPA) built on React 19 and Vite. State is managed reactively through React hooks (`useState`, `useEffect`, `useMemo`) and persisted synchronously in browser `localStorage`.
 
 ```mermaid
 graph TD
@@ -15,26 +15,29 @@ graph TD
     subgraph UI_Views [Active Views]
         DashboardView[Home Dashboard - Dashboard.jsx]
         InvoicesView[All Invoices - AllInvoicesView.jsx]
+        CatalogView[Product Catalog - ProductCatalogView.jsx]
         EditorView[GST Billing Studio - InvoiceForm.jsx & InvoicePreview.jsx]
     end
 
     subgraph Modals [Modals & Overlays]
         QuickCreateModal[Quick Create Invoice Modal]
+        CatalogPickerModal[Catalog Item Picker Modal]
         ProfileModal[Operator Profile Modal]
         SettingsModal[Store & Bank Settings Modal]
         HistoryModal[Invoice History Modal]
     end
 
     subgraph Core_Utilities [Business Logic & Calculations]
-        GSTEngine[gstCalculations.js - Tax & Totals Engine]
+        CategoryConfig[categories.js - Centralized Multi-Category System]
+        GSTEngine[gstCalculations.js - Line Item & Multi-HSN Engine]
         NumWords[numberToWords.js - Indian Currency Words]
-        PDFExport[pdfExport.js - jspdf + html2canvas]
+        PDFExport[pdfExport.js - Lightweight Vector jsPDF Engine]
         IdGen[idGenerator.js - Non-colliding IDs & Timestamps]
-        Defaults[defaults.js - Store Metadata & Presets]
+        Defaults[defaults.js - Store Metadata & Multi-Category Presets]
     end
 
     subgraph Storage [Client-Side Persistence]
-        LocalStorage[Browser localStorage - tps_invoice_records & tps_business_profile]
+        LocalStorage[Browser localStorage: tps_invoice_records, tps_product_catalog, tps_business_profile]
     end
 
     ReactApp --> UI_Views
@@ -46,147 +49,98 @@ graph TD
 
 ---
 
-## 2. Navigation & View Routing Model
+## 2. Centralized Product Category System (`src/utils/categories.js`)
 
-The application uses an internal state router managed in [`src/App.jsx`](../src/App.jsx) via the `activeView` state:
+The application decouples product-specific assumptions from the core billing and invoicing engine by defining a centralized category configuration registry:
+
+| Category ID | Display Label | Subcategories Supported | Default HSN/SAC | Default GST | Technical Specification Fields |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `battery` | Battery | Automotive, Inverter, Tubular, SMF, VRLA, Lithium, Solar, Two-Wheeler | `8507` | 28% | Capacity (`Ah`), Voltage (`12V/24V`), Technology (`Tall Tubular`, `SMF`, etc.), Warranty, Serial Number |
+| `inverter` | Inverter | Home Inverter, Commercial, Solar Inverter, Hybrid, Off-Grid, On-Grid, UPS | `8504` | 18% | Capacity (`VA/kVA`), Power (`Watts/kW`), Waveform (`Pure Sine Wave`), Voltage, Warranty, Serial Number |
+| `solar` | Solar | Solar Panels (Mono/Bifacial/TopCon), Inverters, MPPT Controllers, Solar Batteries, Cables, Systems | `8541` | 12% / 18% | Rated Capacity (`Wp`), Panel Technology, System Capacity (`kW`), Warranty, Serial Number |
+| `services` | Services | Solar Installation, Inverter Setup, Battery Installation, AMC, Maintenance, Repair | `9954` / `9987` | 18% | Service Category, Scope of Work, Turnaround/Warranty (physical fields suppressed) |
+
+---
+
+## 3. Generalization of Invoice Line Items
+
+A shared, universal line item structure represents any product or service without forcing inappropriate physical attributes:
+
+```typescript
+interface InvoiceLineItem {
+  id: string;
+  name: string;
+  category: 'battery' | 'inverter' | 'solar' | 'services';
+  subcategory?: string;
+  brand?: string;
+  model?: string;
+  specs: {
+    // Dynamic category-specific key/values
+    capacity?: string;
+    voltage?: string;
+    batteryType?: string;
+    capacityVa?: string;
+    powerWatts?: string;
+    waveform?: string;
+    ratedCapacityWp?: string;
+    panelTechnology?: string;
+    systemCapacityKw?: string;
+    serviceScope?: string;
+    [key: string]: string | undefined;
+  };
+  hsn: string;
+  serialNo?: string;
+  warranty?: string;
+  qty: number;
+  unit: 'Nos' | 'Set' | 'Piece' | 'Watt' | 'kW' | 'Meter' | 'Job' | 'Service';
+  rate: number;
+  isTaxInclusive: boolean;
+  gstRate: number;
+}
+```
+
+### Mixed-Category Invoices
+A single invoice can simultaneously contain a tubular battery (`8507`, 28%), a home inverter (`8504`, 18%), bifacial solar panels (`8541`, 12%), and a rooftop installation service (`9954`, 18%).
+- Each line item computes its own taxable value, CGST/SGST/IGST, and line total independently.
+- The invoice computes a multi-HSN statutory summary table grouping entries by `${item.hsn}_${item.gstRate}`.
+- Category sales breakdown (`categorySales`) sums item line totals without double counting.
+
+---
+
+## 4. Navigation & State Lifecycle
+
+The application router in [`src/App.jsx`](../src/App.jsx) manages four main views:
+1. `'dashboard'`: Business summary KPIs, 4 category sales performance bars, category-filtered invoice list.
+2. `'invoices'`: Comprehensive table/card view with sorting, category filters, and search.
+3. `'catalog'`: Full Product Catalog manager with CRUD modal, search, brand filters, and "Add to Bill".
+4. `'editor'`: Dual-pane GST Tax Bill Generator and Live A4 Invoice Preview.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Dashboard : App Launched
     Dashboard --> AllInvoices : "View All" or Nav Tab
-    Dashboard --> QuickCreateModal : "+ New Invoice" or FAB
-    Dashboard --> GSTBillingStudio : "Open" invoice from table
+    Dashboard --> Catalog : "Catalog" Nav Tab
+    Dashboard --> Editor : "Open" from table
     
-    AllInvoices --> Dashboard : "Back to Dashboard" or Nav Tab
-    AllInvoices --> QuickCreateModal : "+ New Invoice"
-    AllInvoices --> GSTBillingStudio : "Open" invoice
+    Catalog --> Editor : "Add to Bill" (injects item & switches view)
+    Editor --> CatalogPicker : "Browse Full Catalog" modal
+    CatalogPicker --> Editor : Select Product (inserts into items)
     
-    GSTBillingStudio --> Dashboard : "Back to Dashboard"
-    GSTBillingStudio --> AllInvoices : Nav Tab
-    
-    QuickCreateModal --> Dashboard : Invoice Saved (auto-updates metrics)
-    QuickCreateModal --> GSTBillingStudio : "Open in Full GST Studio"
-```
-
-1. `'dashboard'`: Displays business summary cards, live digital clock, time-based greetings, and recent invoice list.
-2. `'invoices'`: Displays a comprehensive, searchable, filterable, and sortable list of all invoice records.
-3. `'editor'`: The full dual-panel GST Billing Studio featuring the detailed input form on the left and the live A4 statutory Kerala tax invoice preview on the right.
-
----
-
-## 3. Component Hierarchy & Responsibilities
-
-```text
-src/
-├── main.jsx                       # Application bootstrap (createRoot)
-└── App.jsx                        # Root Coordinator & State Container
-    ├── Header.jsx                 # Top Navbar, Brand, Live Clock, Nav Tabs, Profile Dropdown
-    ├── Dashboard.jsx              # Summary Metrics, Time Greeting, Recent Invoices Table/Cards
-    ├── AllInvoicesView.jsx        # Full Invoices Table/Cards, Search, Sorters, Deletion
-    ├── FloatingActionButton.jsx   # Fixed bottom-right creation trigger (hidden on editor)
-    ├── QuickCreateInvoiceModal.jsx# Fast invoice modal with line items & instant validation
-    ├── UserProfileModal.jsx       # Operator information & local mock notice
-    ├── BusinessSettingsModal.jsx  # Store details, GSTIN, Bank A/C, IFSC, UPI ID editor
-    ├── InvoiceHistoryModal.jsx    # Legacy history drawer & record management
-    └── [Editor View]
-        ├── InvoiceForm.jsx        # Dynamic itemized billing form, HSN chips, scrap exchange
-        └── InvoicePreview.jsx     # Statutory Kerala GST Tax Invoice A4 sheet layout
-            └── UpiQrCode.jsx      # Dynamic Canvas/SVG UPI payment QR code
-```
-
-### Detailed Component Roles
-
-| Component | Responsibility |
-| :--- | :--- |
-| **`App.jsx`** | Master state owner for `invoices`, `activeView`, and `invoice` (active draft). Handles cross-component event dispatching, toast banners, and `localStorage` persistence. |
-| **`Header.jsx`** | Renders brand logo, GSTIN badge, page tabs with invoice count pill, digital clock (1s tick interval), date, and simulated operator dropdown. |
-| **`Dashboard.jsx`** | Computes 4 summary metrics (`Total Invoices`, `Paid`, `Pending`, `Total Revenue`), renders search and filter controls, and presents recent invoices. |
-| **`AllInvoicesView.jsx`** | Manages the complete invoice dataset with multi-criteria sorting (Newest, Oldest, Amount High/Low) and status filters. |
-| **`QuickCreateInvoiceModal.jsx`** | Lightweight modal for rapid invoice generation without navigating away from the dashboard. Enforces field and date validations. |
-| **`InvoiceForm.jsx`** | Comprehensive GST form with support for product catalogue presets, HSN code selection, warranty terms, reverse tax-inclusive calculation, and scrap battery exchange deductions. |
-| **`InvoicePreview.jsx`** | Pixel-perfect Kerala GST Tax Invoice adhering to A4 dimensions (210mm × 297mm), including statutory declarations, HSN tax summaries, and authorized signatory blocks. |
-| **`UpiQrCode.jsx`** | Generates an NPCI-compliant UPI payment intent string (`upi://pay?pa=...`) and renders a sharp QR code via `qrcode`. |
-
----
-
-## 4. State Ownership and Data Flow
-
-### Invoice Lifecycle Flow
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor User
-    participant Dashboard as Dashboard.jsx
-    participant Modal as QuickCreateInvoiceModal.jsx
-    participant App as App.jsx
-    participant Storage as localStorage
-    participant Engine as gstCalculations.js
-
-    User->>Dashboard: Clicks "+ New Invoice"
-    Dashboard->>App: handleStartNewInvoice()
-    App->>Modal: Mounts with nextInvoiceNumber
-    User->>Modal: Fills Client Name & Line Items
-    Modal->>Modal: Validates inputs & calculates live total
-    User->>Modal: Clicks "Save Invoice"
-    Modal->>App: onSaveInvoice(newInvoice)
-    App->>Storage: Writes updated tps_invoice_records
-    App->>App: setInvoices([newInvoice, ...prev])
-    App->>Dashboard: Re-renders with updated metrics
-    Dashboard->>Engine: Re-calculates Total Revenue & Counts
-    Dashboard-->>User: Displays success toast and new invoice in list
+    AllInvoices --> Dashboard : "Back to Dashboard"
+    Editor --> Dashboard : "Back to Dashboard"
 ```
 
 ---
 
-## 5. Storage Keys & Migration Strategy
+## 5. Backward Compatibility & Safe Normalization
 
-The application standardizes on the following `localStorage` keys:
+Existing invoice records created before the multi-category upgrade lack the `category` field.
+The helper `normalizeInvoiceItem(rawItem)` in [`src/utils/categories.js`](../src/utils/categories.js) safely infers the category:
+- If `hsn` starts with `99` or name includes `service`/`installation` $\rightarrow$ `services`
+- If `hsn` starts with `8541` or name includes `solar`/`panel` $\rightarrow$ `solar`
+- If `hsn` starts with `8504` or name includes `inverter`/`ups` $\rightarrow$ `inverter`
+- Otherwise default $\rightarrow$ `battery`
 
-| Key | Type | Description |
-| :--- | :--- | :--- |
-| `tps_invoice_records` | JSON Array | Primary collection of all created, edited, and mock invoices. |
-| `tps_invoice_draft` | JSON Object | Active working invoice loaded in the full GST Billing Studio. |
-| `tps_business_profile` | JSON Object | Store business details (GSTIN, Bank Name, A/C, IFSC, UPI ID). |
-| `tps_invoice_history` | JSON Array | Legacy backup store (synced for backwards compatibility). |
-
-### Initialization & Guard Rules
-- When the application starts, `tps_invoice_records` is queried.
-- **If key is null:** The application seeds the initial diverse mock invoices from [`src/data/mockData.js`](../src/data/mockData.js).
-- **If key exists (even if empty `[]`):** The application respects the user's stored dataset and **does not** overwrite it with mock data.
-- All JSON parsing operations are wrapped in `try...catch` blocks to protect against corrupted browser storage.
-
----
-
-## 6. PDF Generation & Print Architecture
-
-The application implements a dual-engine architecture in [`src/utils/pdfExport.js`](../src/utils/pdfExport.js) to guarantee both lightweight vector fidelity and reliable fallback:
-
-```mermaid
-graph TD
-    Trigger([User Clicks 'Download PDF']) --> Check{Invoice & Business Objects Available?}
-    Check -->|Yes - Primary Engine| Vector[generateVectorPdf\nDirect jsPDF Vector & Text Engine]
-    Check -->|No - Fallback Engine| Canvas[generateCanvasFallbackPdf\nhtml2canvas with JPEG 0.88 Compression]
-
-    Vector --> VDoc[Native jsPDF A4 Document\n100% Vector Lines & Shapes\nSelectable & Searchable Text\nEmbedded 2KB UPI QR Code]
-    VDoc --> Out[Download PDF: 40 KB - 85 KB\n~99.3% Size Reduction\nMathematical 1-Page / Multi-Page Pagination]
-
-    Canvas --> CDoc[High-DPI Canvas Snapshot\nCompressed JPEG Stream]
-    CDoc --> OutFallback[Download PDF: 250 KB - 400 KB]
-```
-
-### Architectural Decisions:
-1. **Direct Vector & Text PDF Generation (Primary):**
-   - Emits actual PDF text streams (`doc.text()`) rather than taking full-page bitmap screenshots.
-   - All dividers, tables, and borders are drawn using native vector primitives (`doc.rect()`, `doc.line()`).
-   - Text remains 100% copyable, searchable, and crystal-clear at 1000% zoom.
-   - Typical file size is reduced from **~11 MB down to 78 KB** (a **99.28% reduction**).
-2. **Mathematical Pagination & Clean Multi-Page Expansion:**
-   - Standard retail battery invoices (1–5 items) are guaranteed to fit on a **single A4 page** with 0 overflow and 0 trailing blank pages.
-   - For larger commercial fleet invoices (8–14 items), the engine checks available vertical space per row and splits cleanly across pages, re-printing the continuation table headers and keeping the middle totals, bank details, QR code, and signatures together on the final page.
-3. **QR Code Optimization:**
-   - Payment QR codes are generated directly from the NPCI URI using `QRCode.toDataURL(upiUri, { width: 140, margin: 1, ... })` and embedded as an optimized 2 KB image at exact display dimensions.
-4. **Minimalist Professional Visual Redesign:**
-   - The invoice layout adheres to modern accounting standards: pure white background (`#ffffff`), dark charcoal slate text (`#0f172a`), subtle grey borders (`#cbd5e1`), and restrained warm amber accents.
-   - Heavy solid black boxes, yellow declaration panels, and oversized badges have been eliminated in favor of clean typographic hierarchy.
-
+This guarantees that:
+- Historical invoices open, edit, and export to PDF without errors.
+- Stored `localStorage` records are never corrupted or deleted.

@@ -1,6 +1,7 @@
 import React from 'react';
 import { formatINR, formatNumber } from '../utils/numberToWords.js';
 import { calculateInvoiceTotals, buildUpiUri } from '../utils/gstCalculations.js';
+import { formatItemSpecifications } from '../utils/categories.js';
 import UpiQrCode from './UpiQrCode';
 import { BatteryCharging } from 'lucide-react';
 
@@ -184,6 +185,11 @@ export default function InvoicePreview({ invoice, business, invoiceCopy = 'Origi
                 </td>
                 <td className="py-2 px-2 border-r border-slate-200 align-top">
                   <div className="font-bold text-slate-900 leading-snug">{item.name}</div>
+                  {formatItemSpecifications(item) && (
+                    <div className="text-[9.5px] text-slate-600 font-medium mt-0.5">
+                      {formatItemSpecifications(item)}
+                    </div>
+                  )}
                   {(item.serialNo || item.warranty) && (
                     <div className="flex flex-wrap gap-x-2 text-[9px] text-slate-500 mt-0.5">
                       {item.serialNo && (

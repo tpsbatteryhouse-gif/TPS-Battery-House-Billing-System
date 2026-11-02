@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   FileSpreadsheet,
   ReceiptText,
+  Package,
 } from 'lucide-react';
 import { MOCK_USER } from '../data/mockData';
 
@@ -132,6 +133,19 @@ export default function Header({
             <ReceiptText className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Tax Bill Generator</span>
             <span className="sm:hidden">Generator</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveView('catalog')}
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all font-medium ${
+              activeView === 'catalog'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-850'
+            }`}
+          >
+            <Package className="w-3.5 h-3.5" />
+            <span>Catalog</span>
           </button>
         </nav>
 

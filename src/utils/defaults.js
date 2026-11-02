@@ -1,3 +1,5 @@
+import { PRODUCT_CATEGORIES, MULTI_CATEGORY_UNITS } from './categories.js';
+
 export const DEFAULT_BUSINESS = {
   businessName: 'TPS BATTERYS HOUSE',
   gstin: '32DIUPP1211B2ZN',
@@ -20,7 +22,7 @@ export const DEFAULT_BUSINESS = {
   terms: [
     '1. Warranty claims are subject to the terms and conditions provided by the original manufacturer.',
     '2. Original warranty card and this Tax Invoice are mandatory for any warranty / replacement claims.',
-    '3. Battery replacement / service is subject to manufacturer inspection and testing.',
+    '3. Battery, inverter and solar equipment servicing is subject to manufacturer inspection and testing.',
     '4. Old battery scrap value accepted as per mutual agreement and condition of scrap.',
     '5. Goods once sold will not be accepted back or refunded without valid technical grounds.',
     '6. Subject to Thrithala, Palakkad jurisdiction only.',
@@ -30,84 +32,146 @@ export const DEFAULT_BUSINESS = {
 
 export const COMMON_HSN_SUGGESTIONS = [
   { code: '8507', desc: 'Electric Accumulators / Lead-Acid & Tubular Batteries', defaultGst: 28 },
-  { code: '8504', desc: 'Electrical Transformers, Static Converters (Inverters / UPS)', defaultGst: 18 },
-  { code: '8506', desc: 'Primary Cells and Primary Batteries', defaultGst: 18 },
+  { code: '8504', desc: 'Electrical Transformers, Static Converters (Inverters / UPS / Charge Controllers)', defaultGst: 18 },
+  { code: '8541', desc: 'Solar Photovoltaic Cells & Modules / Solar Panels', defaultGst: 12 },
+  { code: '9954', desc: 'Installation, Construction & Commissioning Services', defaultGst: 18 },
   { code: '9987', desc: 'Maintenance and Repair Services of Electrical Equipment', defaultGst: 18 },
   { code: '850790', desc: 'Battery Parts, Acid, Accessories & Terminal Clamps', defaultGst: 28 },
 ];
 
 export const ITEM_PRESETS = [
-  {
-    name: 'Fuze 1100 Inverter + 150 Ah Tubular Battery (Combo Set)',
-    hsn: '8507',
-    warranty: '36 Months Replacement',
-    unit: 'Set',
-    gstRate: 28,
-    isTaxInclusive: true,
-    price: 22000,
-  },
-  {
-    name: 'Amaron Current 150Ah Tall Tubular Inverter Battery (CR-AR150TT)',
-    hsn: '8507',
-    warranty: '36 Months Free + 18 Months Pro-rata',
-    unit: 'Nos',
-    gstRate: 28,
-    isTaxInclusive: true,
-    price: 15500,
-  },
+  // Battery Presets
   {
     name: 'Exide InvaMaster 150Ah Tall Tubular Battery (IMTT1500)',
+    category: PRODUCT_CATEGORIES.BATTERY,
+    subcategory: 'Tubular Battery',
+    brand: 'Exide',
+    model: 'IMTT1500',
     hsn: '8507',
     warranty: '36 Months Full Replacement',
     unit: 'Nos',
     gstRate: 28,
     isTaxInclusive: true,
     price: 14800,
+    specs: { capacity: '150Ah', voltage: '12V', batteryType: 'Tall Tubular' },
   },
   {
-    name: 'Luminous Eco Volt Neo 1050 Pure Sine Wave Inverter',
-    hsn: '8504',
-    warranty: '24 Months On-site Warranty',
+    name: 'Amaron Current 150Ah Tall Tubular Inverter Battery (CR-AR150TT)',
+    category: PRODUCT_CATEGORIES.BATTERY,
+    subcategory: 'Tubular Battery',
+    brand: 'Amaron',
+    model: 'CR-AR150TT',
+    hsn: '8507',
+    warranty: '36 Months Free + 18 Months Pro-rata',
     unit: 'Nos',
-    gstRate: 18,
+    gstRate: 28,
     isTaxInclusive: true,
-    price: 6800,
+    price: 15500,
+    specs: { capacity: '150Ah', voltage: '12V', batteryType: 'Tall Tubular' },
   },
   {
-    name: 'Microtek Super Power 1100 Advanced Digital UPS',
-    hsn: '8504',
-    warranty: '24 Months Warranty',
-    unit: 'Nos',
-    gstRate: 18,
-    isTaxInclusive: true,
-    price: 6400,
-  },
-  {
-    name: 'Amaron Hi-Life 35Ah Car Battery (AAM-FL-00042B20L)',
+    name: 'Amaron Hi-Life 35Ah Maintenance Free Car Battery (AAM-FL-00042B20L)',
+    category: PRODUCT_CATEGORIES.BATTERY,
+    subcategory: 'Automotive Battery',
+    brand: 'Amaron',
+    model: 'AAM-FL-00042B20L',
     hsn: '8507',
     warranty: '60 Months (30F + 30P)',
     unit: 'Nos',
     gstRate: 28,
     isTaxInclusive: true,
     price: 4300,
+    specs: { capacity: '35Ah', voltage: '12V', batteryType: 'SMF / VRLA' },
+  },
+
+  // Inverter Presets
+  {
+    name: 'Luminous Eco Volt Neo 1050 Pure Sine Wave Inverter',
+    category: PRODUCT_CATEGORIES.INVERTER,
+    subcategory: 'Home Inverter',
+    brand: 'Luminous',
+    model: 'Eco Volt Neo 1050',
+    hsn: '8504',
+    warranty: '24 Months On-site Warranty',
+    unit: 'Nos',
+    gstRate: 18,
+    isTaxInclusive: true,
+    price: 6800,
+    specs: { capacityVa: '900 VA', powerWatts: '756 Watts', voltage: '12V DC', waveform: 'Pure Sine Wave' },
   },
   {
-    name: 'Exide Matrix 45Ah Maintenance Free Car Battery',
-    hsn: '8507',
-    warranty: '66 Months (36F + 30P)',
+    name: 'Microtek Super Power 1100 Advanced Digital Pure Sine Wave UPS',
+    category: PRODUCT_CATEGORIES.INVERTER,
+    subcategory: 'Home Inverter',
+    brand: 'Microtek',
+    model: 'Super Power 1100',
+    hsn: '8504',
+    warranty: '24 Months Warranty',
     unit: 'Nos',
-    gstRate: 28,
+    gstRate: 18,
     isTaxInclusive: true,
-    price: 5600,
+    price: 6400,
+    specs: { capacityVa: '1000 VA', powerWatts: '800 Watts', voltage: '12V DC', waveform: 'Pure Sine Wave' },
+  },
+
+  // Solar Presets
+  {
+    name: 'Waaree 550Wp Bifacial Mono PERC Solar Panel Module',
+    category: PRODUCT_CATEGORIES.SOLAR,
+    subcategory: 'Monocrystalline Solar Panels',
+    brand: 'Waaree',
+    model: 'WXS-550-BIF',
+    hsn: '8541',
+    warranty: '12Y Product + 30Y Performance',
+    unit: 'Nos',
+    gstRate: 12,
+    isTaxInclusive: true,
+    price: 13750,
+    specs: { ratedCapacityWp: '550 Wp', panelTechnology: 'Bifacial Mono PERC', voltage: '41.8V Vmp' },
   },
   {
-    name: 'Exide Xpress Heavy Commercial Vehicle Battery 130Ah',
-    hsn: '8507',
-    warranty: '36 Months Warranty',
+    name: 'Microtek 24V / 40A MPPT Solar Charge Controller',
+    category: PRODUCT_CATEGORIES.SOLAR,
+    subcategory: 'Solar Charge Controllers',
+    brand: 'Microtek',
+    model: 'SM-40A-24V',
+    hsn: '8504',
+    warranty: '12 Months Warranty',
     unit: 'Nos',
-    gstRate: 28,
+    gstRate: 18,
     isTaxInclusive: true,
-    price: 13200,
+    price: 4500,
+    specs: { ratedCapacityWp: '1000W PV Input', voltage: '12V / 24V' },
+  },
+
+  // Service Presets
+  {
+    name: 'Rooftop Solar EPC Installation, Structural Mounting & Wiring Service',
+    category: PRODUCT_CATEGORIES.SERVICES,
+    subcategory: 'Solar Installation',
+    brand: 'TPS Services',
+    model: 'On-site Service',
+    hsn: '9954',
+    warranty: '12 Months Workmanship Guarantee',
+    unit: 'Job',
+    gstRate: 18,
+    isTaxInclusive: true,
+    price: 6500,
+    specs: { serviceCategory: 'Rooftop Solar EPC & Commissioning' },
+  },
+  {
+    name: 'Inverter & Battery Home Wiring & Commissioning Service',
+    category: PRODUCT_CATEGORIES.SERVICES,
+    subcategory: 'Inverter Installation',
+    brand: 'TPS Services',
+    model: 'Standard Installation',
+    hsn: '9987',
+    warranty: '6 Months Service Guarantee',
+    unit: 'Service',
+    gstRate: 18,
+    isTaxInclusive: true,
+    price: 1200,
+    specs: { serviceCategory: 'Inverter & Battery Wiring Installation' },
   },
 ];
 
@@ -120,63 +184,117 @@ export const PAYMENT_MODES = [
   'Debit/Credit Card',
 ];
 
-export const UNITS_LIST = ['Nos', 'Set', 'Pcs', 'Units', 'Boxes', 'Pairs'];
+export const UNITS_LIST = MULTI_CATEGORY_UNITS;
 
 export const GST_RATES = [28, 18, 12, 5, 0];
 
-// Default sample test invoice pre-filled as specified in requirements
+// Default sample test invoice demonstrating a mixed-category purchase:
+// Battery + Inverter + Solar Panel + Installation Service
 export const getSampleInvoiceData = () => {
   const today = new Date().toISOString().split('T')[0];
-  
+
   return {
     id: 'sample-' + Date.now(),
-    invoiceNumber: 'TPS/2026-27/001',
+    invoiceNumber: 'TPS/2026-27/007',
     invoiceDate: today,
     dueDate: today,
-    paymentMode: 'Cash',
+    paymentMode: 'Bank Transfer (NEFT/RTGS/IMPS)',
     paymentStatus: 'Paid',
     placeOfSupply: 'Kerala (32)',
     reverseCharge: 'No',
 
-    // Customer / Billed To
     customer: {
-      name: 'Rajesh K.',
-      phone: '9876543210',
-      address: 'Near Old Bus Stand, Thrithala Road',
-      city: 'Thrithala',
+      name: 'Green Valley Agro Farm',
+      phone: '9847334455',
+      address: 'Kudallur, Anakkara Road',
+      city: 'Anakkara',
       district: 'Palakkad',
       state: 'Kerala',
       stateCode: '32',
-      pincode: '679534',
-      gstin: '', // B2C unregistered
+      pincode: '679551',
+      gstin: '32AABCG9981A1Z4',
     },
 
-    // Line items
     items: [
       {
         id: 'item-1',
-        name: 'Fuze 1100 Inverter + 150 Ah Tubular Battery (Combo Set)',
+        name: 'Exide InvaMaster 150Ah Tall Tubular Battery (IMTT1500)',
+        category: PRODUCT_CATEGORIES.BATTERY,
+        subcategory: 'Tubular Battery',
+        brand: 'Exide',
+        model: 'IMTT1500',
         hsn: '8507',
-        serialNo: 'FZ-2026-98124 / BAT-150-7762',
-        warranty: '36 Months Replacement',
+        serialNo: 'EXD-IM-98214',
+        warranty: '36 Months Full Replacement',
         qty: 1,
-        unit: 'Set',
-        rate: 22000, // Total Gross Amount ₹22,000 (tax inclusive)
+        unit: 'Nos',
+        rate: 14800,
         isTaxInclusive: true,
         gstRate: 28,
+        specs: { capacity: '150Ah', voltage: '12V', batteryType: 'Tall Tubular' },
+      },
+      {
+        id: 'item-2',
+        name: 'Luminous Eco Volt Neo 1050 Pure Sine Wave Inverter',
+        category: PRODUCT_CATEGORIES.INVERTER,
+        subcategory: 'Home Inverter',
+        brand: 'Luminous',
+        model: 'Eco Volt Neo 1050',
+        hsn: '8504',
+        serialNo: 'LUM-EV-55412',
+        warranty: '24 Months On-site Warranty',
+        qty: 1,
+        unit: 'Nos',
+        rate: 6800,
+        isTaxInclusive: true,
+        gstRate: 18,
+        specs: { capacityVa: '900 VA', powerWatts: '756 Watts', voltage: '12V DC', waveform: 'Pure Sine Wave' },
+      },
+      {
+        id: 'item-3',
+        name: 'Waaree 550Wp Bifacial Mono PERC Solar Panel Module',
+        category: PRODUCT_CATEGORIES.SOLAR,
+        subcategory: 'Monocrystalline Solar Panels',
+        brand: 'Waaree',
+        model: 'WXS-550-BIF',
+        hsn: '8541',
+        serialNo: 'WRE-550-8812',
+        warranty: '12Y Product + 30Y Performance',
+        qty: 2,
+        unit: 'Nos',
+        rate: 13750,
+        isTaxInclusive: true,
+        gstRate: 12,
+        specs: { ratedCapacityWp: '550 Wp', panelTechnology: 'Bifacial Mono PERC', voltage: '41.8V Vmp' },
+      },
+      {
+        id: 'item-4',
+        name: 'Rooftop Solar EPC Installation, Structural Mounting & Wiring Service',
+        category: PRODUCT_CATEGORIES.SERVICES,
+        subcategory: 'Solar Installation',
+        brand: 'TPS Services',
+        model: 'On-site Service',
+        hsn: '9954',
+        serialNo: '',
+        warranty: '12 Months Workmanship Guarantee',
+        qty: 1,
+        unit: 'Job',
+        rate: 6500,
+        isTaxInclusive: true,
+        gstRate: 18,
+        specs: { serviceCategory: 'Rooftop Solar EPC & Commissioning' },
       },
     ],
 
-    // Old Battery Exchange / Scrap Buyback
+    // Old Battery Exchange / Scrap Buyback (Applicable on battery purchase)
     scrapExchange: {
       enabled: true,
       description: 'Old 150Ah Scrap Battery Buyback (Exchange Discount)',
-      amount: 2000,
+      amount: 2500,
     },
 
-    // Adjustments
-    additionalDiscount: 0,
-    roundOffManual: null, // null for auto round-off
-    notes: 'Thank you for choosing TPS BATTERYS HOUSE. For inverter/battery service or emergency jump-start call +91 9846830532.',
+    additionalDiscount: 1000,
+    roundOffManual: null,
+    notes: 'Complete Solar + Inverter + Battery backup system installed and commissioned with full manufacturer warranty.',
   };
 };
