@@ -45,7 +45,7 @@ The following table explicitly classifies every core capability of the applicati
 | **Backup & Disaster Recovery** | **Not Implemented** | There is no automatic cloud snapshot, database replica, or periodic remote export. If browser data is cleared, all records are permanently destroyed. |
 | **Audit Logging & History** | **Not Implemented** | Invoices track an `updatedAt` / `createdAt` timestamp in their payload, but there is no append-only immutable audit trail recording *who* modified or deleted an invoice. |
 | **Payment Processing** | **Simulated / Manual** | Invoices can be toggled between `Paid`, `Pending`, and `Overdue`. No UPI payment gateway, POS terminal webhook, or bank reconciliation is integrated. |
-| **PDF Generation & Printing** | **Implemented (Client-Only)** | Utilizes browser `window.print()` and client-side CSS media print stylesheets. |
+| **PDF Generation & Printing** | **Implemented (Client-Only)** | Pure client-side vector jsPDF engine (40–85 KB) and native browser print styles. Generates 100% locally in browser memory without transmitting customer records, phone numbers, or invoice data to any third-party cloud server. |
 
 ---
 

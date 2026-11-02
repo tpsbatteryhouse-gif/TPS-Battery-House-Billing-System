@@ -1,4 +1,4 @@
-import { numberToIndianWords } from './numberToWords';
+import { numberToIndianWords } from './numberToWords.js';
 
 /**
  * Calculates line-level and invoice-level GST values.

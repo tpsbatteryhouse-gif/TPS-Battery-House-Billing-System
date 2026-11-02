@@ -260,7 +260,8 @@ export default function App() {
       await downloadInvoicePdf(
         'invoice-printable',
         invoice.invoiceNumber,
-        invoice.customer?.name
+        invoice.customer?.name,
+        { invoice, business, invoiceCopy }
       );
       showToast('PDF downloaded successfully!');
     } catch (err) {

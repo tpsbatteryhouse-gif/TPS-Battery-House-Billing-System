@@ -106,3 +106,13 @@ Metrics are calculated reactively via `useMemo` from the `invoices` array:
 - **`Pending`:** Counted in Pending card and added to Pending Balance.
 - **`Overdue`:** Highlighted in red in the list; excluded from settled revenue.
 - **`Draft`:** Work-in-progress quotations; excluded from revenue figures.
+
+---
+
+## 6. PDF Export Consistency & Financial Precision
+
+The vector PDF export engine in [`src/utils/pdfExport.js`](../src/utils/pdfExport.js) directly executes the same `calculateInvoiceTotals` function used by the on-screen preview and the store dashboard.
+
+- **Zero Variance:** All taxable values, CGST/SGST/IGST components, scrap allowances, discounts, and rounding values in the PDF match the on-screen preview and dashboard totals to two decimal places.
+- **Currency Presentation:** Monetary values in the PDF are formatted via `formatNumber()` with strict tabular alignment, and net payable amounts are formatted with the currency denomination (`Rs. 26,000.00` or `₹26,000.00`) and validated Indian currency words (`numberToIndianWords()`).
+
