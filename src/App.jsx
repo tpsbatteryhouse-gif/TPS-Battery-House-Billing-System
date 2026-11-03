@@ -98,8 +98,8 @@ export default function App() {
   const [isLoggedOut, setIsLoggedOut] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
-  // Editor View specific controls
-  const [mobileView, setMobileView] = useState('both'); // 'form', 'preview', 'both'
+  // Editor View Mode: 'edit' (default: full-width editor), 'preview' (dedicated full-width preview), 'split' (optional side-by-side)
+  const [editorMode, setEditorMode] = useState('edit');
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
   const [isSavedFeedback, setIsSavedFeedback] = useState(false);
   const [invoiceCopy, setInvoiceCopy] = useState('Original for Recipient');
@@ -200,6 +200,7 @@ export default function App() {
       items: (inv.items || []).map((item) => normalizeInvoiceItem(item)),
     };
     setInvoice(openedInvoice);
+    setEditorMode('edit');
     setActiveView('editor');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -503,7 +504,7 @@ export default function App() {
               />
             )}
 
-            {/* VIEW 3: FULL GST TAX BILL GENERATOR & LIVE PREVIEW */}
+            {/* VIEW 3: FULL GST TAX BILL GENERATOR & DEDICATED PREVIEW */}
             {activeView === 'editor' && (
               <div className="space-y-4">
                 {/* Editor Sub-Header: Back to Dashboard & Bill Actions */}
@@ -517,45 +518,66 @@ export default function App() {
                       <ArrowLeft className="w-3.5 h-3.5" />
                       <span>Back to Dashboard</span>
                     </button>
-                    <div className="hidden sm:block text-xs text-slate-400">
+                    <div className="text-xs text-slate-400">
                       Invoice: <span className="font-mono font-bold text-white">{invoice.invoiceNumber}</span>
                     </div>
+                    {/* Transaction Classification Badge */}
+                    <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                      {invoice.transactionType || inferTransactionType(invoice)}
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* View Switcher for smaller devices */}
-                    <div className="flex xl:hidden bg-slate-800 p-0.5 rounded-lg border border-slate-700 text-xs">
+                    {/* Dedicated Mode Switcher */}
+                    <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700 text-xs">
                       <button
                         type="button"
-                        onClick={() => setMobileView('form')}
-                        className={`p-1.5 rounded flex items-center gap-1 ${
-                          mobileView === 'form' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300'
+                        onClick={() => {
+                          setEditorMode('edit');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className={`px-3 py-1.5 rounded flex items-center gap-1.5 font-medium transition-colors ${
+                          editorMode === 'edit'
+                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                            : 'text-slate-300 hover:text-white'
                         }`}
-                        title="Form Only"
+                        title="Full-Width Invoice Editor"
                       >
-                        <Edit3 className="w-4 h-4" />
-                        <span className="hidden sm:inline">Form</span>
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Editor</span>
                       </button>
+
                       <button
                         type="button"
-                        onClick={() => setMobileView('preview')}
-                        className={`p-1.5 rounded flex items-center gap-1 ${
-                          mobileView === 'preview' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300'
+                        onClick={() => {
+                          setEditorMode('preview');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className={`px-3 py-1.5 rounded flex items-center gap-1.5 font-medium transition-colors ${
+                          editorMode === 'preview'
+                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                            : 'text-slate-300 hover:text-white'
                         }`}
-                        title="Invoice Only"
+                        title="Dedicated A4 Invoice Preview"
                       >
-                        <Eye className="w-4 h-4" />
-                        <span className="hidden sm:inline">Invoice</span>
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Preview Invoice</span>
                       </button>
+
                       <button
                         type="button"
-                        onClick={() => setMobileView('both')}
-                        className={`p-1.5 rounded hidden sm:flex items-center gap-1 ${
-                          mobileView === 'both' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300'
+                        onClick={() => {
+                          setEditorMode('split');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className={`px-2.5 py-1.5 rounded hidden xl:flex items-center gap-1.5 font-medium transition-colors ${
+                          editorMode === 'split'
+                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                            : 'text-slate-300 hover:text-white'
                         }`}
-                        title="Split Screen"
+                        title="Side-by-Side Split View"
                       >
-                        <Columns className="w-4 h-4" />
+                        <Columns className="w-3.5 h-3.5" />
                         <span>Split</span>
                       </button>
                     </div>
@@ -604,61 +626,179 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Split Workspace */}
-                <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
-                  {/* Left: Input Form */}
-                  <div
-                    className={`xl:col-span-5 2xl:col-span-5 h-[calc(100vh-10rem)] no-print ${
-                      mobileView === 'preview' ? 'hidden xl:block' : 'block'
-                    }`}
-                  >
+                {/* MODE 1: DEDICATED FULL-WIDTH INVOICE EDITOR (DEFAULT) */}
+                {editorMode === 'edit' && (
+                  <div className="w-full no-print">
                     <InvoiceForm
                       invoice={invoice}
                       setInvoice={setInvoice}
                       catalog={catalog}
+                      business={business}
                       onSave={handleSaveInvoiceInEditor}
                       onReset={handleStartNewInvoice}
                       onLoadSample={handleLoadSample}
                       isSaved={isSavedFeedback}
+                      onPreview={() => {
+                        setEditorMode('preview');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      onPrint={handlePrint}
+                      onDownloadPdf={handleDownloadPdf}
+                      isPdfGenerating={isPdfGenerating}
                     />
                   </div>
+                )}
 
-                  {/* Right: Live A4 Invoice Preview */}
-                  <div
-                    className={`xl:col-span-7 2xl:col-span-7 flex flex-col items-center ${
-                      mobileView === 'form' ? 'hidden xl:flex' : 'flex'
-                    }`}
-                  >
-                    {/* Copy Designation Bar */}
-                    <div className="w-full max-w-[800px] mb-3 flex items-center justify-between bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl text-xs text-slate-300 no-print">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        <span className="font-semibold text-white">Live Kerala GST Tax Invoice Preview</span>
+                {/* MODE 2: DEDICATED FULL-WIDTH INVOICE PREVIEW */}
+                {editorMode === 'preview' && (
+                  <div className="space-y-4">
+                    {/* Return to Editor Notice & Controls */}
+                    <div className="bg-slate-900 border border-slate-800 p-3 sm:px-4 rounded-xl shadow-lg flex flex-wrap items-center justify-between gap-3 no-print">
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditorMode('edit');
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }}
+                          className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-md"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Edit Invoice</span>
+                        </button>
+                        <div className="text-xs text-slate-300">
+                          Previewing Invoice <span className="font-mono font-bold text-amber-400">{invoice.invoiceNumber}</span>
+                          <span className="hidden md:inline text-slate-400"> • Current Form State (Unsaved edits reflected)</span>
+                        </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] text-slate-400 hidden sm:inline">Designation:</span>
-                        <select
-                          value={invoiceCopy}
-                          onChange={(e) => setInvoiceCopy(e.target.value)}
-                          className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-amber-400 font-medium focus:outline-none"
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-slate-400 hidden sm:inline">Designation:</span>
+                          <select
+                            value={invoiceCopy}
+                            onChange={(e) => setInvoiceCopy(e.target.value)}
+                            className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-amber-400 font-medium focus:outline-none"
+                          >
+                            <option value="Original for Recipient">Original for Recipient</option>
+                            <option value="Duplicate for Supplier">Duplicate for Supplier</option>
+                            <option value="Triplicate for Records">Triplicate for Records</option>
+                          </select>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleSaveInvoiceInEditor}
+                          className={`px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all shadow-md ${
+                            isSavedFeedback
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                          }`}
                         >
-                          <option value="Original for Recipient">Original for Recipient</option>
-                          <option value="Duplicate for Supplier">Duplicate for Supplier</option>
-                          <option value="Triplicate for Records">Triplicate for Records</option>
-                        </select>
+                          {isSavedFeedback ? (
+                            <>
+                              <CheckCircle className="w-3.5 h-3.5" />
+                              <span>Saved</span>
+                            </>
+                          ) : (
+                            <span>Save Bill</span>
+                          )}
+                        </button>
                       </div>
                     </div>
 
-                    <div className="w-full flex justify-center overflow-x-auto p-1">
+                    {/* Centered A4 Invoice */}
+                    <div className="w-full flex flex-col items-center justify-center p-2 sm:p-4 overflow-x-auto">
                       <InvoicePreview
                         invoice={invoice}
                         business={business}
                         invoiceCopy={invoiceCopy}
                       />
                     </div>
+
+                    {/* Bottom Return Banner */}
+                    <div className="flex items-center justify-center gap-3 py-4 no-print">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditorMode('edit');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-2 border border-slate-700 transition-colors shadow-sm"
+                      >
+                        <Edit3 className="w-4 h-4 text-amber-400" />
+                        <span>Return to Invoice Editor</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleDownloadPdf}
+                        disabled={isPdfGenerating}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-bold flex items-center gap-2 transition-all shadow-md disabled:opacity-50"
+                      >
+                        <Download className="w-4 h-4" />
+                        <span>Download A4 PDF</span>
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* MODE 3: OPTIONAL SIDE-BY-SIDE SPLIT VIEW */}
+                {editorMode === 'split' && (
+                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+                    {/* Left: Input Form */}
+                    <div className="xl:col-span-6 2xl:col-span-6 no-print">
+                      <InvoiceForm
+                        invoice={invoice}
+                        setInvoice={setInvoice}
+                        catalog={catalog}
+                        business={business}
+                        onSave={handleSaveInvoiceInEditor}
+                        onReset={handleStartNewInvoice}
+                        onLoadSample={handleLoadSample}
+                        isSaved={isSavedFeedback}
+                        onPreview={() => {
+                          setEditorMode('preview');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        onPrint={handlePrint}
+                        onDownloadPdf={handleDownloadPdf}
+                        isPdfGenerating={isPdfGenerating}
+                      />
+                    </div>
+
+                    {/* Right: Live A4 Invoice Preview */}
+                    <div className="xl:col-span-6 2xl:col-span-6 flex flex-col items-center">
+                      <div className="w-full max-w-[800px] mb-3 flex items-center justify-between bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl text-xs text-slate-300 no-print">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span className="font-semibold text-white">Live Kerala GST Tax Invoice Preview</span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-slate-400 hidden sm:inline">Designation:</span>
+                          <select
+                            value={invoiceCopy}
+                            onChange={(e) => setInvoiceCopy(e.target.value)}
+                            className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-amber-400 font-medium focus:outline-none"
+                          >
+                            <option value="Original for Recipient">Original for Recipient</option>
+                            <option value="Duplicate for Supplier">Duplicate for Supplier</option>
+                            <option value="Triplicate for Records">Triplicate for Records</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="w-full flex justify-center overflow-x-auto p-1">
+                        <InvoicePreview
+                          invoice={invoice}
+                          business={business}
+                          invoiceCopy={invoiceCopy}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
