@@ -26,7 +26,14 @@ import BusinessSettingsModal from './components/BusinessSettingsModal';
 import ProductCatalogView from './components/ProductCatalogView';
 import { DEFAULT_BUSINESS, getSampleInvoiceData } from './utils/defaults';
 import { INITIAL_MOCK_INVOICES, MOCK_USER } from './data/mockData';
-import { INITIAL_PRODUCT_CATALOG, PRODUCT_CATEGORIES, CATEGORY_CONFIG } from './utils/categories';
+import {
+  INITIAL_PRODUCT_CATALOG,
+  PRODUCT_CATEGORIES,
+  CATEGORY_CONFIG,
+  TRANSACTION_TYPES,
+  inferTransactionType,
+  normalizeInvoiceItem,
+} from './utils/categories';
 import { downloadInvoicePdf } from './utils/pdfExport';
 import { calculateInvoiceTotals } from './utils/gstCalculations';
 import { formatINR } from './utils/numberToWords';
@@ -164,13 +171,35 @@ export default function App() {
 
   // Handle Quick Create Save
   const handleSaveQuickInvoice = (newInvoice) => {
-    setInvoices((prev) => [newInvoice, ...prev]);
-    showToast(`Invoice ${newInvoice.invoiceNumber} created successfully!`);
+    const txType = inferTransactionType(newInvoice);
+    const normalizedItems = (newInvoice.items || []).map((item) => normalizeInvoiceItem(item));
+    const invWithItems = {
+      ...newInvoice,
+      items: normalizedItems,
+    };
+    const quickTotals = calculateInvoiceTotals(invWithItems, business.stateCode || '32');
+
+    const invoiceToSave = {
+      ...invWithItems,
+      id: newInvoice.id || ('inv-' + Date.now()),
+      transactionType: txType,
+      netPayable: quickTotals.netPayable,
+      savedAt: new Date().toISOString(),
+    };
+
+    setInvoices((prev) => [invoiceToSave, ...prev]);
+    showToast(`Invoice ${invoiceToSave.invoiceNumber} created successfully!`);
   };
 
   // Handle Opening an Invoice from Dashboard / List into Full Generator
   const handleOpenInvoiceInEditor = (inv) => {
-    setInvoice(inv);
+    // Preserve all historical fields; ensure transactionType is set cleanly without rewriting amounts
+    const openedInvoice = {
+      ...inv,
+      transactionType: inferTransactionType(inv),
+      items: (inv.items || []).map((item) => normalizeInvoiceItem(item)),
+    };
+    setInvoice(openedInvoice);
     setActiveView('editor');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -215,6 +244,7 @@ export default function App() {
       invoiceNumber: newInvNo,
       invoiceDate: today,
       dueDate: today,
+      transactionType: TRANSACTION_TYPES.B2B,
       paymentMode: 'Cash',
       paymentStatus: 'Draft',
       placeOfSupply: 'Kerala (32)',
@@ -267,17 +297,33 @@ export default function App() {
 
   // Handle Saving bill from within the Full GST Billing Studio
   const handleSaveInvoiceInEditor = () => {
+    const stableId = invoice.id || ('inv-' + Date.now());
+    const txType = inferTransactionType(invoice);
+    const normalizedItems = (invoice.items || []).map((item) => normalizeInvoiceItem(item));
+
     const invoiceToSave = {
       ...invoice,
-      id: invoice.id || 'inv-' + Date.now(),
+      id: stableId,
+      transactionType: txType,
+      items: normalizedItems,
+      scrapExchange: {
+        ...invoice.scrapExchange,
+        enabled: Boolean(invoice.scrapExchange?.enabled),
+        amount: Math.max(0, Number(invoice.scrapExchange?.amount) || 0),
+        description: invoice.scrapExchange?.description || 'Old 150Ah Scrap Battery Buyback',
+      },
+      additionalDiscount: Math.max(0, Number(invoice.additionalDiscount) || 0),
       netPayable: totals.netPayable,
       savedAt: new Date().toISOString(),
     };
 
-    // Update invoices array
+    // Keep active editor state exactly in sync with saved record
+    setInvoice(invoiceToSave);
+
+    // Update invoices array (match by stable ID first, then invoiceNumber)
     setInvoices((prev) => {
       const existingIdx = prev.findIndex(
-        (i) => i.invoiceNumber === invoiceToSave.invoiceNumber
+        (i) => (i.id && i.id === invoiceToSave.id) || i.invoiceNumber === invoiceToSave.invoiceNumber
       );
       if (existingIdx >= 0) {
         const updated = [...prev];
@@ -643,7 +689,38 @@ export default function App() {
               isOpen={isQuickCreateOpen}
               onClose={() => setIsQuickCreateOpen(false)}
               onSaveInvoice={handleSaveQuickInvoice}
-              onOpenInFullGenerator={() => {
+              onOpenInFullGenerator={(formData) => {
+                if (formData) {
+                  const txType = formData.transactionType || (formData.customerGstin?.trim() ? TRANSACTION_TYPES.B2B : TRANSACTION_TYPES.B2C);
+                  const items = (formData.items || []).map((it) =>
+                    normalizeInvoiceItem({
+                      id: it.id || ('item-' + Date.now()),
+                      name: it.description || '',
+                      category: it.category || PRODUCT_CATEGORIES.BATTERY,
+                      hsn: it.hsn || (CATEGORY_CONFIG[it.category]?.defaultHsn || '8507'),
+                      qty: Number(it.qty) || 1,
+                      unit: it.unit || 'Nos',
+                      rate: Number(it.unitPrice) || 0,
+                      isTaxInclusive: true,
+                      gstRate: Number(it.gstRate) || (CATEGORY_CONFIG[it.category]?.defaultGstRate || 28),
+                    })
+                  );
+
+                  setInvoice((prev) => ({
+                    ...prev,
+                    invoiceNumber: formData.invoiceNumber || prev.invoiceNumber,
+                    invoiceDate: formData.invoiceDate || prev.invoiceDate,
+                    dueDate: formData.dueDate || prev.dueDate,
+                    transactionType: txType,
+                    customer: {
+                      ...prev.customer,
+                      name: formData.customerName || prev.customer?.name || '',
+                      phone: formData.customerPhone || prev.customer?.phone || '',
+                      gstin: formData.customerGstin || prev.customer?.gstin || '',
+                    },
+                    items: items.length > 0 ? items : prev.items,
+                  }));
+                }
                 setActiveView('editor');
               }}
               nextInvoiceNumber={getNextInvoiceNumber()}

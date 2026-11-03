@@ -18,12 +18,12 @@ The system supports two pricing modes across all product categories:
 ### Formulas
 
 #### A. When Tax Inclusive (`isTaxInclusive === true`):
-$$\text{Gross Amount} = \text{Rate} \times \text{Qty}$$
+$$\text{Gross Amount} = \max(0, (\text{Rate} \times \text{Qty}) - \text{Item Discount})$$
 $$\text{Taxable Value} = \frac{\text{Gross Amount}}{1 + \frac{\text{GST Rate}}{100}}$$
 $$\text{Total GST Amount} = \text{Gross Amount} - \text{Taxable Value}$$
 
 #### B. When Tax Exclusive (`isTaxInclusive === false`):
-$$\text{Taxable Value} = \text{Rate} \times \text{Qty}$$
+$$\text{Taxable Value} = \max(0, (\text{Rate} \times \text{Qty}) - \text{Item Discount})$$
 $$\text{Total GST Amount} = \text{Taxable Value} \times \frac{\text{GST Rate}}{100}$$
 $$\text{Gross Amount} = \text{Taxable Value} + \text{Total GST Amount}$$
 
@@ -84,4 +84,29 @@ $$\text{Subtotal After Deductions} = \max(0, \text{Total Gross} - \text{Scrap Di
   $$\text{Net Payable} = \max(0, \text{Subtotal After Deductions} + \text{roundOffManual})$$
 
 ### Number to Words ([`src/utils/numberToWords.js`](../src/utils/numberToWords.js)):
-Converts the net payable amount to official Indian accounting currency text (e.g., *"Forty-Seven Thousand Nine Hundred Twenty-Five Rupees Only"*).
+Converts the net payable amount to official Indian accounting currency text (e.g., *"Forty-Seven Thousand Multiple Hundred Twenty-Five Rupees Only"*).
+
+---
+
+## 5. Save Data Integrity & Mathematical Invariants
+
+To guarantee that invoice values never mutate automatically when saving, editing, or reopening a bill, the calculation engine adheres to the following strict mathematical invariants:
+
+### A. Idempotent Tax Calculation
+Tax extraction from MRP rates is strictly a derived projection:
+$$\text{Taxable Value} = \frac{\text{Rate} \times \text{Qty}}{1 + \frac{\text{GST Rate}}{100}}$$
+The operator's raw `rate` is stored unchanged. Saving or reloading an invoice never overwrites `rate` with `Taxable Value`.
+
+### B. Decimal Precision Preservation
+- Unit rates are parsed using floating-point decimals (`parseFloat(val) || 0`), ensuring prices such as `₹1,234.56` or `₹149.95` never suffer integer rounding truncation.
+- Quantities are parsed safely with `parseFloat`, supporting fractional values (e.g. `1.5 kW`, `2.5 Sets`).
+
+### C. Non-Duplication of Deductions
+Trade-in scrap allowances and additional discounts are applied strictly once during final aggregation:
+$$\text{Net Payable} = \text{Round}\left(\sum \text{Line Total}_i - \text{Scrap Allowance} - \text{Additional Discount}\right)$$
+Deductions are never subtracted from individual line items or persisted twice.
+
+### D. HSN Splicing Accuracy
+When displaying half-rates for CGST and SGST in the statutory summary, formatting uses exact 2-decimal notation:
+$$\text{Display Rate} = \left(\frac{\text{GST Rate}}{2}\right).\text{toFixed}(2) + \text{"%"}$$
+This ensures a 5% GST slab correctly renders as `2.50%` rather than producing invalid decimal string concatenations (`2.5.00`).

@@ -132,15 +132,64 @@ stateDiagram-v2
 
 ---
 
-## 5. Backward Compatibility & Safe Normalization
+## 5. Save Workflow, Data Integrity & State Synchronization
 
-Existing invoice records created before the multi-category upgrade lack the `category` field.
-The helper `normalizeInvoiceItem(rawItem)` in [`src/utils/categories.js`](../src/utils/categories.js) safely infers the category:
-- If `hsn` starts with `99` or name includes `service`/`installation` $\rightarrow$ `services`
-- If `hsn` starts with `8541` or name includes `solar`/`panel` $\rightarrow$ `solar`
-- If `hsn` starts with `8504` or name includes `inverter`/`ups` $\rightarrow$ `inverter`
-- Otherwise default $\rightarrow$ `battery`
+The application enforces a deterministic, immutable save pipeline between the editor, state manager, and client storage:
 
-This guarantees that:
-- Historical invoices open, edit, and export to PDF without errors.
-- Stored `localStorage` records are never corrupted or deleted.
+```mermaid
+sequenceDiagram
+    participant Form as InvoiceForm.jsx
+    participant App as App.jsx (State Manager)
+    participant Engine as gstCalculations.js
+    participant Storage as localStorage (tps_invoice_records)
+    participant Preview as InvoicePreview & PDF
+
+    Form->>App: onSave(currentInvoice)
+    App->>App: Ensure stable id (generate if new draft)
+    App->>App: Normalize transactionType (infer if missing)
+    App->>Engine: normalizeInvoiceItem(item) [preserves rate, qty, unit]
+    App->>Engine: calculateInvoiceTotals() [computes netPayable & multi-HSN]
+    App->>App: Immutably update invoices array (match by stable id first)
+    App->>App: setInvoice(invoiceToSave) [synchronizes active editor state]
+    App->>Storage: setItem('tps_invoice_records', JSON.stringify(updatedInvoices))
+    App->>Preview: Reactive re-render with identical verified snapshot
+```
+
+### Key Integrity Safeguards:
+1. **Active Editor Synchronization:** Calling `setInvoice(invoiceToSave)` immediately upon saving guarantees the editor and the persisted record remain in identical sync, preventing stale state overwrites.
+2. **Stable Draft IDs:** Every newly initiated invoice receives a collision-proof ID (`inv-${Date.now()}-${random}`) at creation time, preventing ID-less drafts from breaking invoice update lookups.
+3. **Immutable Price Preservation:** The operator's entered unit rate is protected from repeated tax deductions, and decimal prices (`parseFloat`) are preserved without integer truncation.
+4. **Non-Destructive Phone Numbers:** Phone strings preserve country codes and spacing via `replace(/[^\d+ -]/g, '')`.
+
+---
+
+## 6. A4 Page Geometry & Dynamic Bottom Anchoring Architecture
+
+The invoice layout in [`src/components/InvoicePreview.jsx`](../src/components/InvoicePreview.jsx) and the vector PDF engine in [`src/utils/pdfExport.js`](../src/utils/pdfExport.js) follow a traditional Indian retail GST accounting document structure adhering strictly to A4 portrait specifications:
+
+- **Page Dimensions:** 210 mm (width) × 297 mm (height), portrait orientation.
+- **Vertical Layout Budget:**
+  - Target bottom margin: `284 mm` (leaving a 13 mm print-safe bottom clearance).
+  - Reserved height for lower summary sections: Subtotal row (5.5 mm) + Section E (Amount in Words, GST Summary, boxed Bill Amount, Bank Details: 44 mm) + Footers (Terms, UPI QR, Signatory: 32 mm) = **81.5 mm**.
+  - Target Subtotal start position: $284\text{ mm} - 81.5\text{ mm} = \mathbf{202.5\text{ mm}}$.
+- **Dynamic Single-Page Anchoring:**
+  - When an invoice has few line items (1 to 5), the product table vertical lines extend dynamically from the end of the last item row down to `202.5 mm`.
+  - This positions the Subtotal row at `202.5 mm`, Section E from `208 mm` to `252 mm`, and the Footer Grid from `252 mm` to `284 mm`.
+  - Eliminates awkward floating summaries and prevents large empty whitespace in the bottom third of the invoice.
+- **Multi-Page Handling:**
+  - When items exceed `202.5 mm`, the engine completes the table on continuation pages with repeating column headers (`Sl`, `HSN Code`, `Item Name`, `Qty`, `Price`, `Dis Amt`, `GrossAmt`, `GST %`, `GST Amt`, `Total`) and proper pagination (`Page p of totalPages`).
+  - The final summary and signature block always sit cleanly at the bottom of the final page.
+- **Section Structure:**
+  - **Section A (Seller Header & Top Bar):** Business PAN (`PAN NO : DIUPP1211B`), `TAX INVOICE (B2B)` / `RETAIL TAX INVOICE (B2C)`, Copy Title (`Original for Buyer`), TPS BATTERYS HOUSE branding, Padinarangadi address, contact numbers, GSTIN, and State Code `32`.
+  - **Section B (Buyer, Consignee & Invoice Details Grid):** Three enclosed columns: `Bill To` (Buyer address, GSTIN, PAN), `Shipped To` (Consignee delivery address), and structured metadata table (`Invoice Date`, `Invoice No`, `Payment Mode`, `Place of Supply`, `EWay Bill No`, `IRN No`).
+  - **Section C (Main Product Table):** Traditional 10-column table with thin borders: `Sl`, `HSN Code`, `Item Name` (with dynamic category specs, S/N, warranty), `Quantity`, `Price` (pre-tax unit price), `Dis Amt` (`0.00`), `GrossAmt` (taxable amount), `GST` (`%` and `Amt`), and `Total`.
+  - **Section D (Item Subtotal):** Subtotal row aggregating quantity, taxable gross amount, total GST, and final line totals.
+  - **Section E (Amount in Words, GST Summary & Totals / Bank):**
+    - Left column: `Rupees [Amount in Words] Only` and statutory multi-HSN GST computation table (`Taxable Value`, `CGST Rate/Amt`, `SGST Rate/Amt` or `IGST Rate/Amt`, `Total Tax`).
+    - Right column: Deductions (Old Battery Scrap Buyback, Special Discount), `Round Off`, bold boxed `Bill Amount`, and Bank details (`Bank Name`, `Account No`, `IFSC Code`, `Branch`).
+  - **Section G & H (Footer Grid):**
+    - Left: `TERMS & CONDITIONS OF SALE` and operator generation timestamp.
+    - Middle: Scannable high-resolution UPI QR Code (`Scan to Pay`).
+    - Right: `For TPS BATTERYS HOUSE` with space for physical stamp and `Authorised Signatory`.
+- **Vector PDF Engine:** Native vector lines and selectable text in jsPDF (~80-96 KB) matching the browser preview exactly.
+

@@ -22,11 +22,22 @@ Finished in 57ms on 25 files with 104 rules using 8 threads.
 ### B. Production Bundle Compilation (Vite)
 - **Command:** `npm run build`
 - **Tool:** Vite v8.3.5
-- **Result:** **Passed** (Built in 1.12s with zero compilation errors).
+- **Result:** **Passed** (Built in 972ms with zero compilation errors).
 
-### C. Multi-Category Automated Test Suite
+### C. Save Data Integrity & A4 Layout Regression Suite
+- **Command:** `node scratch/test_save_integrity_suite.js`
+- **Result:** **64 Passed, 0 Failed.**
+- **Coverage:** Tests A through J (save without change, repeated save idempotency, inclusive/exclusive pricing preservation, item and invoice discount deductions, scrap deductions, decimal values, 0% GST rate preservation, B2B/B2C transaction type persistence, historical invoice backward compatibility, and A4 PDF bottom positioning).
+
+### D. Multi-Category Automated Test Suite
 - **Command:** `node scratch/test_multi_category_suite.js`
 - **Result:** **41 Passed, 0 Failed.**
+
+### E. Traditional Template Layout Suite
+- **Command:** `node scratch/test_traditional_invoice_suite.js`
+- **Result:** **25 Passed, 0 Failed.**
+
+**Total Automated Test Assertions:** **130 Passed, 0 Failed.**
 
 ---
 
@@ -47,7 +58,24 @@ Finished in 57ms on 25 files with 104 rules using 8 threads.
 
 ---
 
-## 3. Responsive Viewport Verification Matrix
+## 3. Save Data Integrity & Layout Test Matrix (`test_save_integrity_suite.js`)
+
+| Test Case | Objective | Input / Conditions | Expected Behavior | Observed Result | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Test A: Save Without Changes** | Ensure saving an existing invoice without edits does not mutate any fields. | Load existing invoice `TPS/2026-27/007`, execute save handler without modifications. | Exact match across invoice number, transaction type, customer, items, tax values, net payable. | All 19 checked fields identical; 0 mutations. | **Passed** |
+| **Test B: Repeated Save Idempotency** | Prevent duplicate invoices and amount drift across repeated save cycles. | Create invoice, save to storage, reopen, save 3 consecutive times. | Single record maintained in `localStorage`, net payable and line rates remain constant. | Exactly 1 record in storage; amounts 100% stable. | **Passed** |
+| **Test C: MRP-Inclusive Pricing** | Prevent double-deduction of GST on tax-inclusive products across saves. | MRP item `₹15,500` @ 28% GST (`isTaxInclusive: true`). | Taxable value extracted to `₹12,109.38`; raw rate preserved as `15500`; line total stays `15500`. | GST deducted exactly once; rate never mutated. | **Passed** |
+| **Test D: Exclusive Pricing Stability** | Prevent rate drift on tax-exclusive items. | Exclusive rate `₹10,000` @ 18% GST (`isTaxInclusive: false`). | Taxable value `₹10,000`, GST `₹1,800`, line total `₹11,800`. | Exact rate and taxable amounts preserved. | **Passed** |
+| **Test E: Deductions & Exchange** | Prevent double-subtraction of scrap exchange and special discounts. | Gross `₹25,000`, scrap allowance `₹2,500`, special discount `₹500`. | Net payable `₹22,000`. Reopening does not subtract deductions again. | Net payable strictly `₹22,000` across all save cycles. | **Passed** |
+| **Test F: Decimal Precision** | Verify floating-point price and decimal quantity preservation. | Unit rate `₹1,234.56`, quantity `1.5 kW`, discount `₹149.95`. | Decimal quantity parsed as `1.5` without integer truncation; rate kept as `1234.56`. | Quantities and currency cents preserved with full precision. | **Passed** |
+| **Test G: B2B Invoice Persistence** | Verify B2B transaction type and GSTIN format validation. | Transaction type `B2B`, Buyer GSTIN `32AABCT1332L1ZV`. | `transactionType: 'B2B'` stored, GSTIN validated, ITC title rendered. | B2B persisted cleanly; title `TAX INVOICE (B2B)`. | **Passed** |
+| **Test H: B2C Invoice Persistence** | Verify B2C retail flow without GSTIN requirement. | Transaction type `B2C`, consumer phone and address, empty GSTIN. | `transactionType: 'B2C'`, no false validation error, GSTIN omitted. | B2C persisted cleanly; title `RETAIL TAX INVOICE (B2C)`. | **Passed** |
+| **Test I: Historical Invoice Compatibility** | Verify backward-compatible inference on legacy records. | Invoice lacking `transactionType` field. | `inferTransactionType` defaults safely to `B2B` if buyer GSTIN present, else `B2C`. Original record not mutated. | Legacy record rendered cleanly without mutation. | **Passed** |
+| **Test J: A4 PDF Bottom Positioning** | Verify exact A4 dimensions and dynamic bottom anchoring. | Export 2-item, 4-item, and 10-item invoices to jsPDF. | Width = 210mm, Height = 297mm. On 2-item invoice, Subtotal anchors at `202.5mm`, Footers at `284mm`. Multi-page pagination on 10 items. | Exact A4 dimensions; financial summary properly bottom-anchored. | **Passed** |
+
+---
+
+## 4. Responsive Viewport Verification Matrix
 
 | Viewport Width | Device Category | Key Areas Verified | Observation | Result |
 | :--- | :--- | :--- | :--- | :--- |

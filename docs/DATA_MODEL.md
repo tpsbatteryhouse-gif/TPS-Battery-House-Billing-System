@@ -23,6 +23,7 @@ This document defines the schema, data types, validation rules, category metadat
 | :--- | :--- | :--- | :--- |
 | `id` | `String` | Yes | Unique internal identifier (e.g., `inv-1793202930-101`). |
 | `invoiceNumber` | `String` | Yes | Formatted sequential number (e.g., `TPS/2026-27/008`). Auto-incremented based on maximum existing sequence. |
+| `transactionType` | `String` (Enum) | Yes | `'B2B'` \| `'B2C'` \| `'SEZ'` \| `'EXPORT'` \| `'DEEMED_EXPORT'`. Inferred via `inferTransactionType` for legacy records. |
 | `invoiceDate` | `String` (ISO Date `YYYY-MM-DD`) | Yes | Date bill was issued. Must be a valid date string. |
 | `dueDate` | `String` (ISO Date `YYYY-MM-DD`) | Yes | Payment due date. Must be equal to or later than `invoiceDate`. |
 | `paymentStatus` | `String` (Enum) | Yes | `'Draft'` \| `'Pending'` \| `'Paid'` \| `'Overdue'`. |
@@ -40,7 +41,21 @@ This document defines the schema, data types, validation rules, category metadat
 
 ---
 
-### B. Multi-Category Line Item Entity (`LineItem`)
+### B. Transaction Type Configuration (`TRANSACTION_TYPE_CONFIG`)
+
+Defined in [`src/utils/categories.js`](../src/utils/categories.js):
+
+| Key | Label | Requires GSTIN | Default Title | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `B2B` | Business to Business | Yes (Recommended) | `TAX INVOICE (B2B)` | Regular GST registered entity claiming Input Tax Credit. |
+| `B2C` | Business to Consumer | No (Hidden/Optional) | `RETAIL TAX INVOICE (B2C)` | Unregistered end-user consumer sales. |
+| `SEZ` | Special Economic Zone | Optional | `TAX INVOICE (SEZ)` | Supply to SEZ developer or unit under bond/LUT. |
+| `EXPORT` | Export | Optional | `TAX INVOICE (EXPORT)` | Physical cross-border international supplies. |
+| `DEEMED_EXPORT`| Deemed Export | Optional | `TAX INVOICE (DEEMED EXPORT)`| Domestic supplies treated as exports under GST act. |
+
+---
+
+### C. Multi-Category Line Item Entity (`LineItem`)
 
 | Field | Type | Required | Description & Validation Rules |
 | :--- | :--- | :--- | :--- |
@@ -54,9 +69,10 @@ This document defines the schema, data types, validation rules, category metadat
 | `hsn` | `String` | Yes | HSN/SAC code (e.g., `8507`, `8504`, `8541`, `9954`). |
 | `serialNo` | `String` | No | Serial number(s) or job reference (not forced on services). |
 | `warranty` | `String` | No | Warranty duration (e.g., `'36 Months'`, `'25 Years Performance'`). |
-| `qty` | `Number` | Yes | Quantity purchased. Must be integer >= 1. |
+| `qty` | `Number` | Yes | Quantity purchased. Supports positive decimals (e.g. `1.5 kW`, `2.5`). |
 | `unit` | `String` | Yes | Unit of measurement (`'Nos'`, `'Set'`, `'Piece'`, `'Watt'`, `'kW'`, `'Meter'`, `'Job'`, `'Service'`). |
-| `rate` | `Number` | Yes | Unit selling price in ₹ (must be >= 0). |
+| `rate` | `Number` | Yes | Unit selling price in ₹ (must be >= 0, preserves exact decimal cents). |
+| `discount` | `Number` | No | Item-level discount concession in ₹ (must be >= 0). Default: `0`. |
 | `isTaxInclusive` | `Boolean` | Yes | If `true`, rate includes GST (MRP). If `false`, GST is added on top. |
 | `gstRate` | `Number` | Yes | Tax slab percentage (`28`, `18`, `12`, `5`, `0`). |
 

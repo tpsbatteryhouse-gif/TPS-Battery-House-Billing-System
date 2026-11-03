@@ -19,6 +19,8 @@ import { generateId, getIsoTimestamp } from '../utils/idGenerator';
 import {
   PRODUCT_CATEGORIES,
   CATEGORY_CONFIG,
+  TRANSACTION_TYPES,
+  normalizeInvoiceItem,
 } from '../utils/categories';
 import { ITEM_PRESETS } from '../utils/defaults';
 
@@ -29,8 +31,10 @@ function getInitialFormState(nextInvoiceNumber) {
 
   return {
     invoiceNumber: nextInvoiceNumber || 'TPS/2026-27/001',
+    transactionType: TRANSACTION_TYPES.B2B,
     customerName: '',
     customerPhone: '',
+    customerGstin: '',
     invoiceDate: todayStr,
     dueDate: nextWeekStr,
     paymentStatus: INVOICE_STATUSES.DRAFT,
@@ -191,11 +195,13 @@ export default function QuickCreateInvoiceModal({
     }
 
     // Build invoice record matching project structure
+    const txType = formData.transactionType || (formData.customerGstin?.trim() ? TRANSACTION_TYPES.B2B : TRANSACTION_TYPES.B2C);
     const newInvoice = {
       id: generateId('inv'),
       invoiceNumber: formData.invoiceNumber || nextInvoiceNumber,
       invoiceDate: formData.invoiceDate,
       dueDate: formData.dueDate,
+      transactionType: txType,
       paymentMode: formData.paymentMode,
       paymentStatus: formData.paymentStatus,
       placeOfSupply: 'Kerala (32)',
@@ -209,22 +215,24 @@ export default function QuickCreateInvoiceModal({
         state: 'Kerala',
         stateCode: '32',
         pincode: '679552',
-        gstin: '',
+        gstin: (formData.customerGstin || '').trim().toUpperCase(),
       },
-      items: formData.items.map((it, idx) => ({
-        id: it.id || `item-${idx + 1}`,
-        name: it.description,
-        category: it.category || PRODUCT_CATEGORIES.BATTERY,
-        specs: {},
-        hsn: it.hsn || (CATEGORY_CONFIG[it.category]?.defaultHsn || '8507'),
-        serialNo: '',
-        warranty: it.warranty || '36 Months',
-        qty: Number(it.qty) || 1,
-        unit: it.unit || 'Nos',
-        rate: Number(it.unitPrice) || 0,
-        isTaxInclusive: true,
-        gstRate: Number(it.gstRate) || (CATEGORY_CONFIG[it.category]?.defaultGstRate || 28),
-      })),
+      items: formData.items.map((it, idx) =>
+        normalizeInvoiceItem({
+          id: it.id || `item-${idx + 1}`,
+          name: it.description,
+          category: it.category || PRODUCT_CATEGORIES.BATTERY,
+          specs: {},
+          hsn: it.hsn || (CATEGORY_CONFIG[it.category]?.defaultHsn || '8507'),
+          serialNo: '',
+          warranty: it.warranty || '36 Months',
+          qty: Number(it.qty) || 1,
+          unit: it.unit || 'Nos',
+          rate: Number(it.unitPrice) || 0,
+          isTaxInclusive: true,
+          gstRate: Number(it.gstRate) || (CATEGORY_CONFIG[it.category]?.defaultGstRate || 28),
+        })
+      ),
       scrapExchange: {
         enabled: false,
         description: '',
@@ -299,16 +307,54 @@ export default function QuickCreateInvoiceModal({
             </div>
           )}
 
+          {/* Transaction Type Classification Pills */}
+          <div className="space-y-1.5 p-2.5 rounded-xl bg-slate-950/70 border border-slate-800">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="font-semibold text-slate-300">Transaction Type</span>
+              <span className="text-[10px] text-amber-400 font-medium">
+                {formData.transactionType === TRANSACTION_TYPES.B2B ? 'B2B (Tax Invoice with ITC)' : 'B2C (Retail Consumer)'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, transactionType: TRANSACTION_TYPES.B2B })}
+                className={`py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-between transition-colors ${
+                  formData.transactionType === TRANSACTION_TYPES.B2B
+                    ? 'bg-blue-600 text-white border-blue-400 shadow-sm'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                }`}
+              >
+                <span>B2B — Business to Business</span>
+                {formData.transactionType === TRANSACTION_TYPES.B2B && <CheckCircle2 className="w-3.5 h-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, transactionType: TRANSACTION_TYPES.B2C })}
+                className={`py-1.5 px-3 rounded-lg text-xs font-semibold border flex items-center justify-between transition-colors ${
+                  formData.transactionType === TRANSACTION_TYPES.B2C
+                    ? 'bg-emerald-600 text-white border-emerald-400 shadow-sm'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                }`}
+              >
+                <span>B2C — Retail Consumer</span>
+                {formData.transactionType === TRANSACTION_TYPES.B2C && <CheckCircle2 className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+
           {/* Customer & Invoice Number */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1 sm:col-span-2">
-              <label className="text-slate-400 font-medium">Customer / Client Name *</label>
+              <label className="text-slate-400 font-medium">
+                {formData.transactionType === TRANSACTION_TYPES.B2B ? 'Buyer Business / Customer Name *' : 'Customer Name *'}
+              </label>
               <input
                 type="text"
                 required
                 value={formData.customerName}
                 onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                placeholder="e.g. Rajesh K. or Koottanad Agro"
+                placeholder={formData.transactionType === TRANSACTION_TYPES.B2B ? 'e.g. Urjaamithra Enterprises' : 'e.g. Rajesh K.'}
                 className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -323,6 +369,23 @@ export default function QuickCreateInvoiceModal({
               />
             </div>
           </div>
+
+          {/* Buyer GSTIN for B2B */}
+          {formData.transactionType === TRANSACTION_TYPES.B2B && (
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <label className="text-slate-400 font-medium">Buyer GSTIN (Required for B2B ITC)</label>
+                <span className="text-[10px] text-slate-500 font-mono">15 alphanumeric characters</span>
+              </div>
+              <input
+                type="text"
+                value={formData.customerGstin}
+                onChange={(e) => setFormData({ ...formData, customerGstin: e.target.value.toUpperCase() })}
+                placeholder="e.g. 32AABCU9603R1ZM"
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono uppercase focus:outline-none focus:border-amber-500"
+              />
+            </div>
+          )}
 
           {/* Dates & Payment Details */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -556,7 +619,7 @@ export default function QuickCreateInvoiceModal({
                 type="button"
                 onClick={() => {
                   onClose();
-                  onOpenInFullGenerator();
+                  onOpenInFullGenerator(formData);
                 }}
                 className="text-[11px] text-amber-400 hover:text-amber-300 underline font-medium"
               >

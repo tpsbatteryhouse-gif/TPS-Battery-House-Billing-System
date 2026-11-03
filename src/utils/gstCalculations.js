@@ -11,17 +11,18 @@ export function calculateLineItem(item, isInterstate = false) {
   const rate = Math.max(0, Number(normalized.rate) || 0);
   const gstRate = Math.max(0, Number(normalized.gstRate) || 0);
   const isInclusive = Boolean(normalized.isTaxInclusive);
+  const discount = Math.max(0, Number(normalized.discount) || 0);
 
   let taxableValue = 0;
   let grossAmount = 0;
 
   if (isInclusive) {
-    // If rate includes GST, the total gross is rate * qty
-    grossAmount = rate * qty;
+    // If rate includes GST, the total gross after item discount is (rate * qty) - discount
+    grossAmount = Math.max(0, rate * qty - discount);
     taxableValue = gstRate > 0 ? grossAmount / (1 + gstRate / 100) : grossAmount;
   } else {
-    // If rate is exclusive of GST
-    taxableValue = rate * qty;
+    // If rate is exclusive of GST, taxable value is (rate * qty) - discount
+    taxableValue = Math.max(0, rate * qty - discount);
     grossAmount = taxableValue * (1 + gstRate / 100);
   }
 
@@ -49,6 +50,7 @@ export function calculateLineItem(item, isInterstate = false) {
     qty,
     rate,
     gstRate,
+    discount: Number(discount.toFixed(2)),
     taxableValue: Number(taxableValue.toFixed(2)),
     cgstRate,
     cgstAmount: Number(cgstAmount.toFixed(2)),

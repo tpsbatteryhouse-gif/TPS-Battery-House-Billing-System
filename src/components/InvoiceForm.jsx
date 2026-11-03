@@ -17,6 +17,7 @@ import {
   Wrench,
   Layers,
   Info,
+  Building2,
 } from 'lucide-react';
 import {
   ITEM_PRESETS,
@@ -27,6 +28,9 @@ import {
   PRODUCT_CATEGORIES,
   CATEGORY_CONFIG,
   MULTI_CATEGORY_UNITS,
+  TRANSACTION_TYPES,
+  TRANSACTION_TYPE_CONFIG,
+  inferTransactionType,
 } from '../utils/categories';
 import { formatNumber } from '../utils/numberToWords';
 import { calculateLineItem } from '../utils/gstCalculations';
@@ -691,19 +695,17 @@ export default function InvoiceForm({
                       )}
                     </div>
 
-                    {/* Qty, Unit, Rate, Tax Inclusive Toggle, GST Rate */}
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 items-end">
+                    {/* Qty, Unit, Rate, Discount, Tax Inclusive Toggle, GST Rate */}
+                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end">
                       <div className="space-y-1">
                         <label className="text-[11px] font-medium text-slate-400">Qty</label>
                         <input
                           type="number"
-                          min="1"
-                          step="1"
-                          value={item.qty}
-                          onChange={(e) =>
-                            updateItem(idx, 'qty', Math.max(1, parseInt(e.target.value) || 1))
-                          }
-                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white text-center focus:outline-none focus:border-amber-500"
+                          min="0.01"
+                          step="any"
+                          value={item.qty ?? ''}
+                          onChange={(e) => updateItem(idx, 'qty', e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white text-center focus:outline-none focus:border-amber-500"
                         />
                       </div>
 
@@ -727,12 +729,23 @@ export default function InvoiceForm({
                         <input
                           type="number"
                           min="0"
-                          step="0.01"
-                          value={item.rate}
-                          onChange={(e) =>
-                            updateItem(idx, 'rate', Math.max(0, parseFloat(e.target.value) || 0))
-                          }
-                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white text-right focus:outline-none focus:border-amber-500"
+                          step="any"
+                          value={item.rate ?? ''}
+                          onChange={(e) => updateItem(idx, 'rate', e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white text-right focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-medium text-slate-400">Item Dis (₹)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={item.discount ?? ''}
+                          placeholder="0.00"
+                          onChange={(e) => updateItem(idx, 'discount', e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white text-right focus:outline-none focus:border-amber-500"
                         />
                       </div>
 
@@ -747,7 +760,7 @@ export default function InvoiceForm({
                               : 'bg-slate-800 border-slate-700 text-slate-300'
                           }`}
                         >
-                          {item.isTaxInclusive ? 'Incl. GST (MRP)' : 'Excl. GST + Tax'}
+                          {item.isTaxInclusive ? 'Incl. (MRP)' : 'Excl. + Tax'}
                         </button>
                       </div>
 
@@ -807,6 +820,83 @@ export default function InvoiceForm({
         {/* TAB 2: GENERAL & CUSTOMER DETAILS */}
         {activeTab === 'general' && (
           <div className="space-y-4">
+            {/* Dedicated Transaction Type Selector */}
+            {(() => {
+              const currentTxType = invoice.transactionType || inferTransactionType(invoice);
+              const gstinVal = (invoice.customer?.gstin || '').trim();
+              const isGstinFormatValid = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstinVal);
+
+              return (
+                <div className="bg-slate-800/80 p-3.5 rounded-xl border border-blue-500/40 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs font-bold uppercase tracking-wider text-blue-400 flex items-center gap-1.5">
+                      <Building2 className="w-4 h-4" />
+                      <span>Transaction Type Classification</span>
+                    </div>
+                    <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-300 font-mono font-bold border border-blue-500/20">
+                      Active: {currentTxType}
+                    </span>
+                  </div>
+
+                  {/* 5 Transaction Type Pills */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {Object.values(TRANSACTION_TYPES).map((typeKey) => {
+                      const cfg = TRANSACTION_TYPE_CONFIG[typeKey];
+                      const isSelected = currentTxType === typeKey;
+                      return (
+                        <button
+                          key={typeKey}
+                          type="button"
+                          onClick={() => updateField('transactionType', typeKey)}
+                          className={`p-2 rounded-lg text-left text-xs font-semibold border transition-all ${
+                            isSelected
+                              ? 'bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-500/20 ring-1 ring-blue-300'
+                              : 'bg-slate-900/90 text-slate-300 border-slate-700 hover:border-slate-500 hover:bg-slate-800'
+                          }`}
+                        >
+                          <div className="font-bold flex items-center justify-between">
+                            <span>{typeKey}</span>
+                            {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-blue-200" />}
+                          </div>
+                          <div className={`text-[9.5px] truncate ${isSelected ? 'text-blue-100' : 'text-slate-400'}`}>
+                            {typeKey === 'B2B' ? 'Business / GST' : typeKey === 'B2C' ? 'Retail Consumer' : cfg.shortLabel}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Statutory Info Banner */}
+                  <div className="text-[11px] p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 text-slate-300 flex items-start gap-2">
+                    <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <div className="font-semibold text-white">
+                        {TRANSACTION_TYPE_CONFIG[currentTxType]?.label}
+                      </div>
+                      <div className="text-[10.5px] text-slate-400">
+                        {TRANSACTION_TYPE_CONFIG[currentTxType]?.description}
+                      </div>
+                      {currentTxType === 'B2B' && !gstinVal && (
+                        <div className="text-[10.5px] text-amber-400 font-medium pt-0.5">
+                          Notice: B2B billing requires a valid Buyer GSTIN to enable statutory Input Tax Credit (ITC). If the customer has no GSTIN, switch to B2C.
+                        </div>
+                      )}
+                      {currentTxType === 'B2B' && gstinVal && !isGstinFormatValid && (
+                        <div className="text-[10.5px] text-amber-400 font-medium pt-0.5">
+                          Note: Standard Indian GSTIN is 15 alphanumeric characters (e.g. 32AABCU9603R1ZM). Please verify format.
+                        </div>
+                      )}
+                      {(currentTxType === 'SEZ' || currentTxType === 'EXPORT' || currentTxType === 'DEEMED_EXPORT') && (
+                        <div className="text-[10.5px] text-purple-300 font-medium pt-0.5">
+                          Statutory requirement: Ensure prescribed declarations, export documentation, or SEZ authorized officer endorsements are retained on record.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Invoice Meta Section */}
             <div className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/60 space-y-3">
               <div className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
@@ -882,7 +972,7 @@ export default function InvoiceForm({
                   <label className="text-[11px] font-medium text-slate-400">Place of Supply</label>
                   <input
                     type="text"
-                    value={invoice.placeOfSupply}
+                    value={invoice.placeOfSupply || ''}
                     onChange={(e) => updateField('placeOfSupply', e.target.value)}
                     placeholder="Kerala (32)"
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -892,7 +982,7 @@ export default function InvoiceForm({
                 <div className="space-y-1">
                   <label className="text-[11px] font-medium text-slate-400">Reverse Charge Applicable</label>
                   <select
-                    value={invoice.reverseCharge}
+                    value={invoice.reverseCharge || 'No'}
                     onChange={(e) => updateField('reverseCharge', e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
                   >
@@ -901,116 +991,223 @@ export default function InvoiceForm({
                   </select>
                 </div>
               </div>
+
+              {/* Optional Statutory & Transport References (E-Way Bill, IRN, PO) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 border-t border-slate-800/80">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-slate-400">E-Way Bill No (Optional)</label>
+                  <input
+                    type="text"
+                    value={invoice.ewayBillNo || ''}
+                    onChange={(e) => updateField('ewayBillNo', e.target.value)}
+                    placeholder="e.g. 2725843108"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-slate-400">Purchase Order (PO) No</label>
+                  <input
+                    type="text"
+                    value={invoice.poNumber || ''}
+                    onChange={(e) => updateField('poNumber', e.target.value)}
+                    placeholder="e.g. PO-2026-891"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-slate-400">IRN Reference No (Optional)</label>
+                  <input
+                    type="text"
+                    value={invoice.irn || ''}
+                    onChange={(e) => updateField('irn', e.target.value)}
+                    placeholder="e.g. 7a74303e39eb..."
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Customer Section */}
-            <div className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/60 space-y-3">
-              <div className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5" />
-                Customer / Billed To Particulars
-              </div>
+            {(() => {
+              const currentTxType = invoice.transactionType || inferTransactionType(invoice);
+              const isB2B = currentTxType === TRANSACTION_TYPES.B2B || currentTxType === TRANSACTION_TYPES.SEZ || currentTxType === TRANSACTION_TYPES.DEEMED_EXPORT;
+              const gstinVal = (invoice.customer?.gstin || '').trim();
+              const isGstinFormatValid = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstinVal);
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-400">Customer Name *</label>
-                  <input
-                    type="text"
-                    value={invoice.customer.name}
-                    onChange={(e) => updateField('customer.name', e.target.value)}
-                    placeholder="e.g. Rajesh K."
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
+              return (
+                <div className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/60 space-y-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5" />
+                      <span>{isB2B ? 'Buyer / Billed-To Business Particulars' : 'Customer / Billed-To Particulars'}</span>
+                    </div>
+                    <span className="text-[10px] font-sans font-semibold text-slate-400">
+                      {isB2B ? 'B2B Registered Entity' : 'B2C Retail Buyer'}
+                    </span>
+                  </div>
 
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-400">Customer Phone Number</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1.5 text-xs text-slate-500">+91</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-slate-400">
+                        {isB2B ? 'Buyer Business / Entity Name *' : 'Customer Name *'}
+                      </label>
+                      <input
+                        type="text"
+                        value={invoice.customer.name}
+                        onChange={(e) => updateField('customer.name', e.target.value)}
+                        placeholder={isB2B ? 'e.g. Urjaamithra Enterprises / Rajesh K.' : 'e.g. Rajesh K.'}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-slate-400">
+                        {isB2B ? 'Contact / Phone Number' : 'Customer Phone Number'}
+                      </label>
+                      <input
+                        type="tel"
+                        value={invoice.customer.phone}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^\d+ -]/g, '');
+                          updateField('customer.phone', val);
+                        }}
+                        placeholder="e.g. +91 9846830532"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-medium text-slate-400">Billing Street / Area Address</label>
                     <input
-                      type="tel"
-                      value={invoice.customer.phone}
-                      onChange={(e) =>
-                        updateField('customer.phone', e.target.value.replace(/\D/g, '').slice(0, 10))
-                      }
-                      placeholder="9876543210"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                      type="text"
+                      value={invoice.customer.address}
+                      onChange={(e) => updateField('customer.address', e.target.value)}
+                      placeholder="Building / House / Street Name"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-slate-400">City / Town</label>
+                      <input
+                        type="text"
+                        value={invoice.customer.city}
+                        onChange={(e) => updateField('customer.city', e.target.value)}
+                        placeholder="Thrithala"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-slate-400">District</label>
+                      <input
+                        type="text"
+                        value={invoice.customer.district}
+                        onChange={(e) => updateField('customer.district', e.target.value)}
+                        placeholder="Palakkad"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-slate-400">PIN Code</label>
+                      <input
+                        type="text"
+                        value={invoice.customer.pincode}
+                        onChange={(e) =>
+                          updateField('customer.pincode', e.target.value.replace(/\D/g, '').slice(0, 6))
+                        }
+                        placeholder="679552"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-medium text-slate-400">State Code</label>
+                      <input
+                        type="text"
+                        value={invoice.customer.stateCode}
+                        onChange={(e) => updateField('customer.stateCode', e.target.value)}
+                        placeholder="32"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* GSTIN & PAN Section */}
+                  {isB2B ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[11px] font-medium text-slate-400">
+                            Buyer GSTIN (Required for B2B ITC) *
+                          </label>
+                          {gstinVal && (
+                            <span className={`text-[10px] font-medium ${isGstinFormatValid ? 'text-emerald-400' : 'text-amber-400'}`}>
+                              {isGstinFormatValid ? '✓ Valid format' : '⚠ Check 15-digit format'}
+                            </span>
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          value={invoice.customer.gstin || ''}
+                          onChange={(e) => updateField('customer.gstin', e.target.value.toUpperCase())}
+                          placeholder="e.g. 32AABCU9603R1ZM"
+                          className={`w-full bg-slate-900 border rounded-lg px-3 py-1.5 text-xs font-mono uppercase focus:outline-none ${
+                            !gstinVal
+                              ? 'border-amber-500/50 text-white placeholder-amber-400/40'
+                              : 'border-slate-700 text-white placeholder-slate-500 focus:border-amber-500'
+                          }`}
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[11px] font-medium text-slate-400">
+                          Customer PAN No (Optional)
+                        </label>
+                        <input
+                          type="text"
+                          value={invoice.customer.pan || ''}
+                          onChange={(e) => updateField('customer.pan', e.target.value.toUpperCase())}
+                          placeholder="e.g. ABCDE1234F"
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white uppercase placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1 pt-1">
+                      <label className="text-[11px] font-medium text-slate-400">
+                        Customer PAN No (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={invoice.customer.pan || ''}
+                        onChange={(e) => updateField('customer.pan', e.target.value.toUpperCase())}
+                        placeholder="e.g. ABCDE1234F (Optional for retail B2C consumer)"
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white uppercase placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-1 pt-1">
+                    <label className="text-[11px] font-medium text-slate-400">
+                      Shipping / Delivery Address (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={invoice.customer.shippingAddress || ''}
+                      onChange={(e) => updateField('customer.shippingAddress', e.target.value)}
+                      placeholder="Leave blank if identical to billing address"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
                     />
                   </div>
                 </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-slate-400">Street / Area Address</label>
-                <input
-                  type="text"
-                  value={invoice.customer.address}
-                  onChange={(e) => updateField('customer.address', e.target.value)}
-                  placeholder="Building / House / Street Name"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-400">City / Town</label>
-                  <input
-                    type="text"
-                    value={invoice.customer.city}
-                    onChange={(e) => updateField('customer.city', e.target.value)}
-                    placeholder="Thrithala"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-400">District</label>
-                  <input
-                    type="text"
-                    value={invoice.customer.district}
-                    onChange={(e) => updateField('customer.district', e.target.value)}
-                    placeholder="Palakkad"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-400">PIN Code</label>
-                  <input
-                    type="text"
-                    value={invoice.customer.pincode}
-                    onChange={(e) =>
-                      updateField('customer.pincode', e.target.value.replace(/\D/g, '').slice(0, 6))
-                    }
-                    placeholder="679552"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[11px] font-medium text-slate-400">State Code</label>
-                  <input
-                    type="text"
-                    value={invoice.customer.stateCode}
-                    onChange={(e) => updateField('customer.stateCode', e.target.value)}
-                    placeholder="32"
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1 pt-1">
-                <label className="text-[11px] font-medium text-slate-400">
-                  Customer GSTIN (For B2B Billing)
-                </label>
-                <input
-                  type="text"
-                  value={invoice.customer.gstin}
-                  onChange={(e) => updateField('customer.gstin', e.target.value.toUpperCase())}
-                  placeholder="e.g. 32AABCU9603R1ZM (Leave blank for B2C consumer)"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white uppercase placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                />
-              </div>
-            </div>
+              );
+            })()}
 
             {/* Terms & Notes */}
             <div className="bg-slate-800/60 p-3.5 rounded-xl border border-slate-700/60 space-y-2">
@@ -1093,10 +1290,8 @@ export default function InvoiceForm({
                       type="number"
                       min="0"
                       step="50"
-                      value={invoice.scrapExchange.amount}
-                      onChange={(e) =>
-                        updateField('scrapExchange.amount', Math.max(0, parseFloat(e.target.value) || 0))
-                      }
+                      value={invoice.scrapExchange.amount ?? ''}
+                      onChange={(e) => updateField('scrapExchange.amount', e.target.value)}
                       placeholder="2000"
                       className="w-full bg-slate-900 border border-amber-500/50 rounded-lg px-3 py-2 text-sm font-mono font-bold text-amber-400 focus:outline-none focus:border-amber-400"
                     />
@@ -1122,10 +1317,8 @@ export default function InvoiceForm({
                     type="number"
                     min="0"
                     step="10"
-                    value={invoice.additionalDiscount}
-                    onChange={(e) =>
-                      updateField('additionalDiscount', Math.max(0, parseFloat(e.target.value) || 0))
-                    }
+                    value={invoice.additionalDiscount ?? ''}
+                    onChange={(e) => updateField('additionalDiscount', e.target.value)}
                     placeholder="0"
                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
                   />

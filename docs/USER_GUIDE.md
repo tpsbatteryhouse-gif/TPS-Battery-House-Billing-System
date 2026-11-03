@@ -48,9 +48,24 @@ Click **`Add to Bill`** on any product card in the catalog. The item is instantl
 
 ---
 
-## 3. Creating Multi-Category Invoices
+## 3. Creating Invoices & Setting Transaction Types
 
-### Mixed-Category Billing
+### A. Selecting Transaction Type
+The Tax Bill Generator and Quick Create Modal include a dedicated **Transaction Type Classification** selector:
+- **B2B (Business to Business):**
+  - Used for registered business buyers claiming Input Tax Credit (ITC).
+  - Displays **Buyer Business Name** and **Buyer GSTIN** fields.
+  - Automatically runs real-time 15-character statutory GSTIN format validation (`^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$`).
+  - Invoice header title renders as **TAX INVOICE (B2B)**.
+- **B2C (Business to Consumer):**
+  - Used for retail consumers, home solar users, and private vehicle battery buyers.
+  - Displays customer name, phone number, and delivery address.
+  - Hides or optionalizes the buyer GSTIN to eliminate false validation blocks.
+  - Invoice header title renders as **RETAIL TAX INVOICE (B2C)**.
+- **SEZ / Export / Deemed Export:**
+  - Configurable transaction types with destination indicators for special economic zone supplies, physical exports, or deemed export supplies.
+
+### B. Mixed-Category Line Items Billing
 A single invoice can combine products from different categories (e.g., *Waaree 550W Solar Panel + Luminous Inverter + Exide Tubular Battery + Solar Installation Service*).
 
 1. In the **Tax Bill Generator**, navigate to the **Line Items** tab.
@@ -62,11 +77,11 @@ A single invoice can combine products from different categories (e.g., *Waaree 5
    - Fill in product name/model.
    - Enter specifications (capacity, wattage, technology, waveform).
    - Verify HSN code and applicable GST rate.
-   - Enter quantity and selling rate.
+   - Enter quantity and selling rate. Both decimal quantities (e.g. `1.5 kW`, `2.5 Sets`) and fractional currency prices (e.g. `₹1,234.56`) are fully supported.
    - Toggle pricing mode: **`Incl. GST (MRP)`** or **`Excl. GST + Tax`**.
 4. Each item calculates its taxable amount and applicable tax independently.
 
-### Old Battery Scrap Buyback (Battery Exclusive)
+### C. Old Battery Scrap Buyback (Battery Exclusive)
 1. Go to the **Scrap & Discounts** tab.
 2. If the customer is replacing an old battery, toggle **`Old Battery Scrap Buyback / Exchange`**.
 3. Enter the scrap description (e.g., *Old 150Ah Scrap Battery Buyback*) and scrap allowance amount (e.g., `₹2,500`).
@@ -90,16 +105,32 @@ The Dashboard provides non-double-counted insights into business performance:
 
 ## 5. Exporting & Printing Invoices
 
-### Vector PDF Download
+### A. True A4 Geometry & Bottom-Anchored Layout
+The invoice layout strictly adheres to standard A4 portrait specifications (210 mm width × 297 mm height):
+- **Single-Page Invoices:** Dynamic vertical table spacer lines extend downward to 202.5 mm, ensuring that the Subtotal, Amount in Words, Statutory GST Computation Table, boxed `Bill Amount`, Bank Details, Terms & Conditions, UPI QR, and Signature block are anchored towards the bottom margin (~284 mm) without leaving vast empty gaps in the middle of the bill.
+- **Multi-Page Invoices:** When an invoice contains more than 5 or 6 items, content flows naturally across continuation pages with repeating table headers, consistent print margins, and bottom pagination (`Page 1 of 2`).
+
+### B. Vector PDF Download
 1. Click **`Download PDF`** in the Tax Bill Generator header.
-2. The system generates a lightweight vector PDF (~78 KB - 85 KB) containing:
-   - Business branding and GSTIN.
-   - Buyer details and place of supply.
+2. The system generates a lightweight vector PDF (~78 KB - 96 KB) containing:
+   - Business branding, GSTIN `32DIUPP1211B2ZN`, and transaction type badge.
+   - Buyer details, consignee shipping address, and place of supply.
    - Itemized line items table with category specifications and warranty details.
-   - Multi-HSN statutory GST tax summary.
+   - Multi-HSN statutory GST tax computation summary.
    - Bank details and dynamic UPI "Scan to Pay" QR Code.
    - Authorized signatory box and terms.
 3. The PDF is saved directly to your Downloads folder.
 
-### Direct Printing
+### C. Direct Printing
 Click **`Print`** to launch the browser's native print preview. Dedicated `@media print` CSS ensures clean A4 margins with navigation headers automatically omitted.
+
+---
+
+## 6. Saving, Editing, and Data Integrity
+
+The application enforces strict data immutability and save stability safeguards:
+- **No Silent Value Modifications:** Saving a bill persists exactly what the operator entered. Rates, quantities, discounts, and tax values never change unless explicitly edited.
+- **Idempotent Repeated Saves:** Opening an invoice, saving it without changes, or saving it repeatedly produces identical values without duplicating records.
+- **Pricing Mode Protection:** MRP-inclusive prices never have GST deducted twice during save cycles.
+- **Decimal Precision:** Unit rates and fractional quantities are preserved without integer rounding truncation.
+- **Phone Preservation:** Customer mobile numbers preserve prefixes (e.g. `+91 9846830532`) without premature 10-digit truncation.

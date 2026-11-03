@@ -221,7 +221,74 @@ export function formatItemSpecifications(item) {
 }
 
 /**
- * Normalizes an invoice item to ensure it contains safe category metadata
+ * Standard GST Transaction / Customer Classification Types
+ */
+export const TRANSACTION_TYPES = {
+  B2B: 'B2B',
+  B2C: 'B2C',
+  SEZ: 'SEZ',
+  EXPORT: 'EXPORT',
+  DEEMED_EXPORT: 'DEEMED_EXPORT',
+};
+
+export const TRANSACTION_TYPE_CONFIG = {
+  [TRANSACTION_TYPES.B2B]: {
+    id: TRANSACTION_TYPES.B2B,
+    label: 'B2B — Business to Business (Tax Invoice)',
+    shortLabel: 'B2B (Tax Invoice)',
+    description: 'Registered business buyer with GSTIN. Eligible for statutory Input Tax Credit (ITC).',
+    requiresGstin: true,
+    badgeClass: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  },
+  [TRANSACTION_TYPES.B2C]: {
+    id: TRANSACTION_TYPES.B2C,
+    label: 'B2C — Business to Consumer (Retail Invoice)',
+    shortLabel: 'B2C (Retail)',
+    description: 'Unregistered end-consumer. Standard retail tax invoice without ITC.',
+    requiresGstin: false,
+    badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  },
+  [TRANSACTION_TYPES.SEZ]: {
+    id: TRANSACTION_TYPES.SEZ,
+    label: 'SEZ — Special Economic Zone Supply',
+    shortLabel: 'SEZ Supply',
+    description: 'Supply to Special Economic Zone developer or unit (Inter-State IGST rules apply).',
+    requiresGstin: true,
+    badgeClass: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  },
+  [TRANSACTION_TYPES.EXPORT]: {
+    id: TRANSACTION_TYPES.EXPORT,
+    label: 'Export — Out of Territory Supply',
+    shortLabel: 'Export',
+    description: 'Export of goods or services under statutory rules.',
+    requiresGstin: false,
+    badgeClass: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+  },
+  [TRANSACTION_TYPES.DEEMED_EXPORT]: {
+    id: TRANSACTION_TYPES.DEEMED_EXPORT,
+    label: 'Deemed Export',
+    shortLabel: 'Deemed Export',
+    description: 'Supplies notified under section 147 of the CGST Act.',
+    requiresGstin: true,
+    badgeClass: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  },
+};
+
+/**
+ * Safely infers transaction type for legacy or unclassified invoices without mutating data
+ */
+export function inferTransactionType(invoice) {
+  if (!invoice) return TRANSACTION_TYPES.B2C;
+  if (invoice.transactionType && TRANSACTION_TYPE_CONFIG[invoice.transactionType]) {
+    return invoice.transactionType;
+  }
+  // Safe infer for legacy invoices: if GSTIN is present and valid, it's B2B; else B2C
+  const gstin = invoice.customer?.gstin ? String(invoice.customer.gstin).trim() : '';
+  return gstin.length >= 10 ? TRANSACTION_TYPES.B2B : TRANSACTION_TYPES.B2C;
+}
+
+/**
+ * Normalizes an invoice item to ensure it contains safe category metadata and numeric values
  */
 export function normalizeInvoiceItem(item) {
   if (!item) return item;
@@ -244,9 +311,42 @@ export function normalizeInvoiceItem(item) {
     }
   }
 
+  // Ensure item has clean name, rate, qty, unit, gstRate, isTaxInclusive, and discount
+  const name = item.name !== undefined ? item.name : (item.description || '');
+  const rawRate = item.rate !== undefined ? item.rate : (item.unitPrice !== undefined ? item.unitPrice : item.price);
+  const rate = (rawRate !== undefined && rawRate !== null && rawRate !== '') ? Math.max(0, Number(rawRate) || 0) : 0;
+  const rawQty = item.qty !== undefined ? item.qty : item.quantity;
+  const qty = (rawQty !== undefined && rawQty !== null && rawQty !== '') ? Math.max(0.01, Number(rawQty) || 1) : 1;
+  const isTaxInclusive = item.isTaxInclusive !== undefined ? Boolean(item.isTaxInclusive) : true;
+
+  let gstRate = CATEGORY_CONFIG[category]?.defaultGstRate ?? 28;
+  if (item.gstRate !== undefined && item.gstRate !== null && item.gstRate !== '') {
+    gstRate = Number(item.gstRate);
+  } else if (item.gst !== undefined && item.gst !== null && item.gst !== '') {
+    gstRate = Number(item.gst);
+  }
+
+  const hsn = (item.hsn !== undefined && item.hsn !== null && String(item.hsn).trim() !== '')
+    ? String(item.hsn)
+    : (item.hsnCode ? String(item.hsnCode) : (CATEGORY_CONFIG[category]?.defaultHsn || '8507'));
+
+  const unit = (item.unit !== undefined && item.unit !== null && String(item.unit).trim() !== '')
+    ? String(item.unit)
+    : (CATEGORY_CONFIG[category]?.defaultUnit || 'Nos');
+
+  const discount = Math.max(0, Number(item.discount ?? item.discountAmount ?? item.disAmt) || 0);
+
   return {
     ...item,
+    name,
     category,
+    rate,
+    qty,
+    unit,
+    hsn,
+    gstRate,
+    isTaxInclusive,
+    discount,
     specs: item.specs || {},
   };
 }

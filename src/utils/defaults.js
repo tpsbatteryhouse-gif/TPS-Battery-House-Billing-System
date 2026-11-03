@@ -202,6 +202,10 @@ export const getSampleInvoiceData = () => {
     paymentStatus: 'Paid',
     placeOfSupply: 'Kerala (32)',
     reverseCharge: 'No',
+    transactionType: 'B2B',
+    ewayBillNo: '272584310896',
+    poNumber: 'PO-2026-GV-891',
+    irn: '7a74303e39eb6e02725843108b6962a19a1cc470ac6ee39f4174a495c3d18471',
 
     customer: {
       name: 'Green Valley Agro Farm',
@@ -213,6 +217,7 @@ export const getSampleInvoiceData = () => {
       stateCode: '32',
       pincode: '679551',
       gstin: '32AABCG9981A1Z4',
+      pan: 'AABCG9981A',
     },
 
     items: [

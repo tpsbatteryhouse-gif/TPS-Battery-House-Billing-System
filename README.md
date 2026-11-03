@@ -16,6 +16,20 @@ TPS BATTERYS HOUSE is an upgraded sales and invoice management system designed f
 The application operates entirely on the client side using React 19 state and browser `localStorage`, providing instant page load times and zero network latency without requiring an external backend.
 
 ### Primary Features
+- **Transaction Type Classification (B2B, B2C, SEZ, Export, Deemed Export):** Dedicated selector for customer/transaction classifications:
+  - **B2B (Business-to-Business):** Highlights Buyer GSTIN with real-time 15-character format validation, buyer legal business name, billing/shipping addresses, and input tax credit (ITC) compliance.
+  - **B2C (Business-to-Consumer):** Streamlined consumer retail workflow, hides or optionalizes GSTIN, and prevents false validation blocks.
+  - **SEZ / Export / Deemed Export:** Configurable statutory transaction classifications with international/inter-state tax indicators.
+  - **Safe Legacy Inference:** Existing historical invoices seamlessly infer B2B vs B2C without mutating stored records.
+- **A4 Portrait Layout with Dynamic Bottom Alignment:** Modeled after authentic printed accounting invoices:
+  - True 210 × 297 mm portrait page geometry across browser preview, PDF export, and `@media print`.
+  - Dynamic vertical table line extension anchors the Subtotal, Amount in Words, Statutory GST Computation Table, boxed `Bill Amount`, Bank Details, Terms & Conditions, UPI QR, and Signature block towards the bottom margin (~284 mm) on single-page invoices.
+  - Seamless multi-page continuation for long invoices with repeating headers and non-overlapping footers.
+- **Guaranteed Save Data Integrity:** Permanent fix for silent invoice modification bugs:
+  - Zero-mutation state synchronization between editor and `localStorage`.
+  - Full decimal precision support for unit rates and fractional quantities (e.g. `1.5 kW`).
+  - Protection against repeated GST deductions on MRP-inclusive pricing.
+  - Non-destructive phone number normalization preserving country codes.
 - **Multi-Category Product System:** Native support for all four core business categories:
   1. **Battery:** Automotive, Inverter, Tubular, SMF, VRLA, Lithium, Solar, and Two-Wheeler storage batteries with Ah, voltage, and technology specs.
   2. **Inverter:** Home, Commercial, Solar, Hybrid, Off-Grid, and On-Grid Inverters/UPS with VA rating, power wattage, waveform, and phase specs.
@@ -27,8 +41,8 @@ The application operates entirely on the client side using React 19 state and br
 - **Category-Aware Filtering & Search:** Filter invoices by payment status (`Paid`, `Pending`, `Overdue`, `Draft`) and product category (`Battery`, `Inverter`, `Solar`, `Services`).
 - **Old Battery Scrap Buyback (Battery Exclusive):** Preserves trade-in scrap deduction exclusive to battery transactions with eligibility indicators.
 - **Statutory GST Tax Bill Studio:** Reverse tax-inclusive (MRP) and tax-exclusive calculations, multi-HSN statutory summary table, inter-state IGST and intra-state CGST/SGST support.
-- **Ultra-Lightweight Vector PDF:** Client-side vector A4 PDF export using `jspdf` (~78 KB to 85 KB, 99.28% size reduction vs raster captures) with selectable text and embedded UPI QR code.
-- **100% Backward Compatible:** Safe schema normalization for legacy invoices stored in `localStorage` without category metadata.
+- **Ultra-Lightweight Vector PDF:** Client-side vector A4 PDF export using `jspdf` (~80 KB to 96 KB) with selectable text, bottom-anchored financial summaries, and embedded UPI QR code matching the traditional layout.
+- **100% Backward Compatible:** Safe schema normalization for legacy invoices stored in `localStorage` without category or transaction type metadata.
 
 ---
 
@@ -68,7 +82,9 @@ npm install
 | `npm run dev` | Starts local development server | Runs on `http://localhost:5173/` with HMR |
 | `npm run build` | Compiles production assets | Outputs optimized bundle to `dist/` |
 | `npm run lint` | Runs Oxlint across all source files | Checks JSX purity, imports, and syntax (0 warnings, 0 errors) |
+| `node scratch/test_save_integrity_suite.js` | Runs automated save integrity & layout test suite | Verifies 64 assertions across Tests A through J |
 | `node scratch/test_multi_category_suite.js` | Runs automated multi-category test suite | Verifies 41 unit & integration test cases |
+| `node scratch/test_traditional_invoice_suite.js` | Runs traditional template verification suite | Verifies 25 layout and data assertions |
 
 ---
 
