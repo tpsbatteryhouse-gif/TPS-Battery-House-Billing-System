@@ -13,6 +13,8 @@ import {
   Package,
 } from 'lucide-react';
 import { MOCK_USER } from '../data/mockData';
+import { useAuth } from '../context/useAuth';
+import { ROLE_CONFIG } from '../utils/permissions';
 
 export default function Header({
   activeView,
@@ -26,6 +28,35 @@ export default function Header({
   const [currentTime, setCurrentTime] = useState(() => new Date());
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
+
+  // Authenticated user & permissions from AuthContext
+  const authContext = useAuth();
+  const user = authContext?.user;
+  const member = authContext?.member;
+  const permissions = authContext?.permissions;
+  const signOutUser = authContext?.signOutUser;
+
+  const displayName = member?.displayName || user?.displayName || MOCK_USER.name;
+  const email = member?.email || user?.email || MOCK_USER.email;
+  const roleLabel = ROLE_CONFIG[member?.role]?.label || member?.role || MOCK_USER.role;
+  const roleBadgeColor = ROLE_CONFIG[member?.role]?.badgeColor || 'bg-amber-500/15 text-amber-400 border border-amber-500/30';
+  const avatarInitials = (displayName || 'U')
+    .split(' ')
+    .filter(Boolean)
+    .map((n) => n[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+
+  const handleSignOut = () => {
+    setIsDropdownOpen(false);
+    if (signOutUser) {
+      signOutUser();
+    }
+    if (onSignOut) {
+      onSignOut();
+    }
+  };
 
   // Live Digital Clock updating every second
   useEffect(() => {
@@ -163,15 +194,17 @@ export default function Header({
             </div>
           </div>
 
-          {/* Settings Button */}
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
-            title="Store Settings & GST Config"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
+          {/* Settings Button (Visible only to Admin or when permissions allow) */}
+          {(!permissions || permissions.canManageSettings) && (
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
+              title="Store Settings & GST Config"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          )}
 
           {/* User Profile Section with Interactive Dropdown */}
           <div className="relative" ref={dropdownRef}>
@@ -182,33 +215,40 @@ export default function Header({
               aria-label="User profile menu"
               aria-expanded={isDropdownOpen}
             >
-              <div className="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 font-extrabold text-xs flex items-center justify-center shrink-0">
-                {MOCK_USER.avatarInitials}
-              </div>
-              <div className="hidden xl:block text-xs leading-tight">
-                <div className="font-bold text-white flex items-center gap-1">
-                  <span>{MOCK_USER.name}</span>
-                  <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1 py-0.2 rounded font-normal">
-                    Mock
-                  </span>
+              {user?.photoURL ? (
+                <img
+                  src={user.photoURL}
+                  alt={displayName}
+                  className="w-7 h-7 rounded-lg object-cover border border-slate-700 shrink-0"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-lg bg-amber-500 text-slate-950 font-extrabold text-xs flex items-center justify-center shrink-0">
+                  {avatarInitials}
                 </div>
-                <div className="text-[10px] text-slate-400">{MOCK_USER.role}</div>
+              )}
+              <div className="hidden xl:block text-xs leading-tight">
+                <div className="font-bold text-white flex items-center gap-1.5">
+                  <span className="truncate max-w-[120px]">{displayName}</span>
+                </div>
+                <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <span>{roleLabel}</span>
+                </div>
               </div>
               <ChevronDown className="w-3.5 h-3.5 text-slate-400 hidden sm:block" />
             </button>
 
             {/* Dropdown Menu */}
             {isDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-1 z-50 text-xs animate-fade-in divide-y divide-slate-800">
+              <div className="absolute right-0 mt-2 w-60 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl py-1 z-50 text-xs animate-fade-in divide-y divide-slate-800">
                 {/* User info preview in dropdown */}
                 <div className="px-3.5 py-2.5">
-                  <p className="font-bold text-white">{MOCK_USER.name}</p>
-                  <p className="text-[11px] text-slate-400">{MOCK_USER.email}</p>
-                  <div className="mt-1 flex items-center gap-1.5">
-                    <span className="text-[9px] bg-amber-500/15 text-amber-400 px-1.5 py-0.5 rounded font-mono font-medium">
-                      {MOCK_USER.role}
+                  <p className="font-bold text-white truncate">{displayName}</p>
+                  <p className="text-[11px] text-slate-400 truncate">{email}</p>
+                  <div className="mt-1.5 flex items-center gap-1.5">
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${roleBadgeColor}`}>
+                      {roleLabel}
                     </span>
-                    <span className="text-[9px] text-slate-500">Frontend Mock</span>
+                    <span className="text-[9px] text-emerald-400 font-mono">● Active</span>
                   </div>
                 </div>
 
@@ -222,33 +262,32 @@ export default function Header({
                     className="w-full px-3.5 py-2 text-left text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-2 transition-colors"
                   >
                     <User className="w-3.5 h-3.5 text-amber-400" />
-                    <span>My Profile</span>
+                    <span>My Staff Profile</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsDropdownOpen(false);
-                      onOpenSettings();
-                    }}
-                    className="w-full px-3.5 py-2 text-left text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-2 transition-colors"
-                  >
-                    <Settings className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Store & Bank Settings</span>
-                  </button>
+                  {(!permissions || permissions.canManageSettings) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDropdownOpen(false);
+                        onOpenSettings();
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                    >
+                      <Settings className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Store & Bank Settings</span>
+                    </button>
+                  )}
                 </div>
 
                 <div className="py-1">
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsDropdownOpen(false);
-                      onSignOut();
-                    }}
+                    onClick={handleSignOut}
                     className="w-full px-3.5 py-2 text-left text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-2 transition-colors"
                   >
                     <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out (Reset Demo)</span>
+                    <span>Sign Out</span>
                   </button>
                 </div>
               </div>

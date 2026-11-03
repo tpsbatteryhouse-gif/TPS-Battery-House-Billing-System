@@ -20,6 +20,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { MOCK_USER, INVOICE_STATUSES } from '../data/mockData';
+import { useAuth } from '../context/useAuth';
 import { formatINR } from '../utils/numberToWords';
 import { getTimeBasedGreeting } from '../utils/idGenerator';
 import {
@@ -38,6 +39,8 @@ export default function Dashboard({
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [greeting] = useState(() => getTimeBasedGreeting());
+  const authContext = useAuth();
+  const userName = authContext?.member?.displayName || authContext?.user?.displayName || MOCK_USER.name;
 
   // Compute Dashboard Metrics dynamically from invoice dataset
   const metrics = useMemo(() => {
@@ -221,7 +224,7 @@ export default function Dashboard({
               </span>
             </div>
             <h1 className="text-xl sm:text-2xl lg:text-3xl font-extrabold text-white tracking-tight">
-              {greeting}, {MOCK_USER.name}!
+              {greeting}, {userName}!
             </h1>
             <p className="text-xs sm:text-sm text-slate-400">
               Manage Batteries, Inverters, Solar Systems, and Installation Services billing.

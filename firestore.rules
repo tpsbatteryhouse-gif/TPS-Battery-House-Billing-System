@@ -1,0 +1,457 @@
+rules_version = '2';
+
+// ===============================================================
+// TPS BATTERYS HOUSE — Production Firestore Security Rules
+// ===============================================================
+//
+// Application: TPS BATTERYS HOUSE GST Billing Application
+// Architecture: Multi-tenant capable, scoped under /businesses/{businessId}
+// Default ID:    tps-battery-house
+//
+// Role-Based Access Control (RBAC):
+//   - Administrator (admin):
+//       * Full access across all collections (members, invoices, products, customers, settings).
+//       * Exclusively authorized to manage staff memberships (create, update, delete).
+//       * Exclusively authorized to delete invoices and modify business settings.
+//       * Authorized to update any invoice, including finalized/paid invoices.
+//       * Cannot self-escalate or delete own membership record.
+//   - Store Manager (manager):
+//       * Authorized to create and read all invoices.
+//       * Authorized to update invoices UNLESS already marked 'Paid' (finalized).
+//       * Cannot delete invoices (strictly admin-only).
+//       * Authorized to manage product catalog and customer directory.
+//       * Cannot manage staff memberships or store/bank configuration.
+//   - Cashier / Counter Operator (cashier):
+//       * Authorized to create new customer invoices and read existing invoices.
+//       * STRICTLY DENIED from updating or deleting any invoices.
+//       * Read-only access to product catalog and customer directory.
+//       * Cannot modify products, customers, staff, or settings.
+//   - Unapproved / Disabled / Visitor:
+//       * All reads and writes strictly denied.
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Section 1: Core Helper & Role Functions
+    // ===============================================================
+
+    // Check if request is from an authenticated user
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Retrieve staff membership document for requesting user
+    function getMemberDoc(businessId) {
+      return get(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid));
+    }
+
+    // Check if requesting user is a registered member of the business
+    function isMember(businessId) {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.auth.uid));
+    }
+
+    // Check if requesting user is an active member
+    function isActiveMember(businessId) {
+      return isMember(businessId) &&
+        getMemberDoc(businessId).data.status == 'active';
+    }
+
+    // Check if requesting user has a specific role and is active
+    function hasRole(businessId, role) {
+      return isActiveMember(businessId) &&
+        getMemberDoc(businessId).data.role == role;
+    }
+
+    // Role predicates
+    function isAdmin(businessId) {
+      return hasRole(businessId, 'admin');
+    }
+
+    function isManager(businessId) {
+      return hasRole(businessId, 'manager');
+    }
+
+    function isCashier(businessId) {
+      return hasRole(businessId, 'cashier');
+    }
+
+    // Validate standard RFC-compliant email string format
+    function isValidEmail(email) {
+      return email is string &&
+        email.size() <= 100 &&
+        email.matches('^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$');
+    }
+
+    // Validate optional string field constraints
+    function isValidOptionalString(data, field, minLen, maxLen) {
+      return !(field in data) ||
+        (data[field] is string &&
+         data[field].size() >= minLen &&
+         data[field].size() <= maxLen);
+    }
+
+    // ===============================================================
+    // Section 2: Domain Validators
+    // ===============================================================
+
+    // Staff Member Validator: called on create and update
+    function isValidMember(data, uid) {
+      return data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'status', 'createdAt', 'createdBy']) &&
+        data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'status', 'createdAt', 'createdBy']) &&
+        data.uid is string &&
+        data.uid == uid &&
+        data.uid.size() > 0 &&
+        data.uid.size() <= 128 &&
+        data.email is string &&
+        isValidEmail(data.email) &&
+        data.displayName is string &&
+        data.displayName.size() >= 1 &&
+        data.displayName.size() <= 100 &&
+        data.role is string &&
+        data.role in ['admin', 'manager', 'cashier'] &&
+        data.status is string &&
+        data.status in ['active', 'disabled'] &&
+        (data.createdAt is timestamp || data.createdAt is string) &&
+        data.createdBy is string &&
+        data.createdBy.size() > 0 &&
+        data.createdBy.size() <= 128;
+    }
+
+    // Member Immutable Fields Validator
+    function areImmutableMemberFieldsUnchanged() {
+      return request.resource.data.uid == resource.data.uid &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        request.resource.data.createdBy == resource.data.createdBy;
+    }
+
+    // Invoice Document Validator: called on create and update
+    function isValidInvoice(data, invoiceId) {
+      return data.keys().hasAll([
+          'id', 'invoiceNumber', 'invoiceDate', 'dueDate',
+          'paymentStatus', 'paymentMode', 'customer', 'items', 'netPayable'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'invoiceNumber', 'transactionType', 'invoiceDate', 'dueDate',
+          'paymentStatus', 'paymentMode', 'placeOfSupply', 'reverseCharge',
+          'poNumber', 'ewayBillNo', 'irn',
+          'customer', 'items', 'scrapExchange', 'additionalDiscount',
+          'roundOffManual', 'netPayable', 'notes', 'createdAt', 'savedAt',
+          'createdBy', 'updatedAt', 'updatedBy'
+        ]) &&
+        data.id is string &&
+        data.id == invoiceId &&
+        data.id.size() >= 1 &&
+        data.id.size() <= 64 &&
+        data.invoiceNumber is string &&
+        data.invoiceNumber.size() >= 1 &&
+        data.invoiceNumber.size() <= 64 &&
+        (!('transactionType' in data) || (data.transactionType is string && data.transactionType in ['B2B', 'B2C', 'SEZ', 'EXPORT', 'DEEMED_EXPORT'])) &&
+        data.invoiceDate is string &&
+        data.invoiceDate.size() >= 1 &&
+        data.invoiceDate.size() <= 30 &&
+        data.dueDate is string &&
+        data.dueDate.size() >= 1 &&
+        data.dueDate.size() <= 30 &&
+        data.paymentStatus is string &&
+        data.paymentStatus in ['Draft', 'Pending', 'Paid', 'Overdue', 'Cancelled'] &&
+        data.paymentMode is string &&
+        data.paymentMode in [
+          'Cash',
+          'UPI / QR Code',
+          'Bank Transfer (NEFT/RTGS/IMPS)',
+          'Bank Transfer',
+          'Credit / Post-dated',
+          'Credit',
+          'Cheque',
+          'Debit/Credit Card'
+        ] &&
+        data.customer is map &&
+        data.customer.keys().hasAll(['name']) &&
+        data.customer.name is string &&
+        data.customer.name.size() >= 1 &&
+        data.customer.name.size() <= 150 &&
+        data.items is list &&
+        data.items.size() >= 1 &&
+        data.items.size() <= 100 &&
+        data.netPayable is number &&
+        data.netPayable >= 0 &&
+        (!('createdAt' in data) || (data.createdAt is string || data.createdAt is timestamp)) &&
+        (!('savedAt' in data) || (data.savedAt is string || data.savedAt is timestamp)) &&
+        isValidOptionalString(data, 'placeOfSupply', 0, 100) &&
+        isValidOptionalString(data, 'reverseCharge', 0, 10) &&
+        isValidOptionalString(data, 'poNumber', 0, 100) &&
+        isValidOptionalString(data, 'ewayBillNo', 0, 100) &&
+        isValidOptionalString(data, 'irn', 0, 150) &&
+        isValidOptionalString(data, 'notes', 0, 1000) &&
+        (!('scrapExchange' in data) || data.scrapExchange is map) &&
+        (!('additionalDiscount' in data) || (data.additionalDiscount is number && data.additionalDiscount >= 0)) &&
+        (!('roundOffManual' in data) || data.roundOffManual == null || data.roundOffManual is number) &&
+        isValidOptionalString(data, 'createdBy', 1, 128) &&
+        isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
+    }
+
+    // Invoice Immutable Fields Validator
+    function areImmutableInvoiceFieldsUnchanged() {
+      return request.resource.data.id == resource.data.id &&
+        request.resource.data.invoiceNumber == resource.data.invoiceNumber &&
+        (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+        (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy);
+    }
+
+    // Product Document Validator: called on create and update
+    function isValidProduct(data, productId) {
+      return data.keys().hasAll([
+          'id', 'sku', 'name', 'category', 'specs', 'unit',
+          'hsn', 'sellingPrice', 'gstRate', 'isTaxInclusive'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'sku', 'name', 'category', 'subcategory', 'brand', 'model',
+          'description', 'specs', 'unit', 'hsn', 'sellingPrice', 'costPrice',
+          'gstRate', 'isTaxInclusive', 'warranty', 'status', 'active', 'createdAt',
+          'updatedAt', 'createdBy', 'updatedBy'
+        ]) &&
+        data.id is string &&
+        data.id == productId &&
+        data.id.size() >= 1 &&
+        data.id.size() <= 64 &&
+        data.sku is string &&
+        data.sku.size() >= 1 &&
+        data.sku.size() <= 64 &&
+        data.name is string &&
+        data.name.size() >= 1 &&
+        data.name.size() <= 150 &&
+        data.category is string &&
+        data.category in ['battery', 'inverter', 'solar', 'services'] &&
+        data.specs is map &&
+        data.unit is string &&
+        data.unit.size() >= 1 &&
+        data.unit.size() <= 30 &&
+        data.hsn is string &&
+        data.hsn.size() >= 1 &&
+        data.hsn.size() <= 20 &&
+        data.sellingPrice is number &&
+        data.sellingPrice >= 0 &&
+        data.gstRate is number &&
+        data.gstRate >= 0 &&
+        data.gstRate <= 100 &&
+        data.isTaxInclusive is bool &&
+        ('status' in data || 'active' in data) &&
+        (!('status' in data) || data.status in ['active', 'inactive']) &&
+        (!('active' in data) || data.active is bool) &&
+        (!('costPrice' in data) || (data.costPrice is number && data.costPrice >= 0)) &&
+        isValidOptionalString(data, 'brand', 0, 100) &&
+        isValidOptionalString(data, 'model', 0, 100) &&
+        isValidOptionalString(data, 'subcategory', 0, 100) &&
+        isValidOptionalString(data, 'description', 0, 1000) &&
+        isValidOptionalString(data, 'warranty', 0, 100) &&
+        isValidOptionalString(data, 'createdBy', 1, 128) &&
+        isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        (!('createdAt' in data) || (data.createdAt is string || data.createdAt is timestamp)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
+    }
+
+    // Product Immutable Fields Validator
+    function areImmutableProductFieldsUnchanged() {
+      return request.resource.data.id == resource.data.id &&
+        (!('sku' in resource.data) || request.resource.data.sku == resource.data.sku) &&
+        (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+        (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy);
+    }
+
+    // Customer Document Validator: called on create and update
+    function isValidCustomer(data, customerId) {
+      return data.keys().hasAll(['name', 'stateCode']) &&
+        data.keys().hasOnly([
+          'id', 'name', 'phone', 'address', 'city', 'district',
+          'state', 'stateCode', 'pincode', 'gstin', 'pan', 'shippingAddress',
+          'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+        ]) &&
+        data.name is string &&
+        data.name.size() >= 1 &&
+        data.name.size() <= 150 &&
+        data.stateCode is string &&
+        data.stateCode.size() >= 1 &&
+        data.stateCode.size() <= 10 &&
+        (!('id' in data) || (data.id is string && data.id == customerId)) &&
+        isValidOptionalString(data, 'phone', 0, 25) &&
+        isValidOptionalString(data, 'address', 0, 300) &&
+        isValidOptionalString(data, 'city', 0, 100) &&
+        isValidOptionalString(data, 'district', 0, 100) &&
+        isValidOptionalString(data, 'state', 0, 100) &&
+        isValidOptionalString(data, 'pincode', 0, 20) &&
+        isValidOptionalString(data, 'gstin', 0, 25) &&
+        isValidOptionalString(data, 'pan', 0, 20) &&
+        isValidOptionalString(data, 'shippingAddress', 0, 300) &&
+        (!('createdAt' in data) || (data.createdAt is string || data.createdAt is timestamp)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp)) &&
+        isValidOptionalString(data, 'createdBy', 1, 128) &&
+        isValidOptionalString(data, 'updatedBy', 1, 128);
+    }
+
+    // Customer Immutable Fields Validator
+    function areImmutableCustomerFieldsUnchanged() {
+      return (!('id' in resource.data) || request.resource.data.id == resource.data.id) &&
+        (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+        (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy);
+    }
+
+    // Settings Document Validator
+    function isValidSetting(data, settingId) {
+      return settingId is string &&
+        settingId.size() >= 1 &&
+        settingId.size() <= 64 &&
+        data.size() <= 50;
+    }
+
+    // Business Root Document Validator
+    function isValidBusiness(data) {
+      return data.size() <= 50 &&
+        isValidOptionalString(data, 'businessName', 1, 150) &&
+        isValidOptionalString(data, 'tradeName', 1, 150) &&
+        isValidOptionalString(data, 'name', 1, 150);
+    }
+
+    // ===============================================================
+    // Section 3: Scoped Security Rules: /businesses/{businessId}
+    // ===============================================================
+
+    match /businesses/{businessId} {
+
+      // Business Profile Document Access (DEFAULT_BUSINESS)
+      // Active staff can read for invoice headers, prints & UPI QR
+      allow read: if isActiveMember(businessId);
+      // Only administrators can modify business & store profile
+      allow create, update: if isAdmin(businessId) && isValidBusiness(request.resource.data);
+      allow delete: if isAdmin(businessId);
+
+      // -------------------------------------------------------------
+      // 1. Staff Membership Collection: /members/{uid}
+      // -------------------------------------------------------------
+      match /members/{uid} {
+        // Authenticated users can read their own member document.
+        // Active administrators can read any member document.
+        allow get: if isAuthenticated() && (request.auth.uid == uid || isAdmin(businessId));
+
+        // Only active administrators can list all staff members (protects PII).
+        allow list: if isAdmin(businessId);
+
+        // Active administrators can register new members for other staff.
+        // Members cannot create their own membership doc (prevents self-promotion).
+        allow create: if isAdmin(businessId) &&
+                         request.auth.uid != uid &&
+                         isValidMember(request.resource.data, uid) &&
+                         request.resource.data.createdBy == request.auth.uid;
+
+        // Active administrators can update other members.
+        // Members cannot modify their own document (prevents self-role/status escalation).
+        allow update: if isAdmin(businessId) &&
+                         request.auth.uid != uid &&
+                         isValidMember(request.resource.data, uid) &&
+                         areImmutableMemberFieldsUnchanged();
+
+        // Active administrators can delete other members.
+        // Administrators cannot delete their own document (prevents self-lockout).
+        allow delete: if isAdmin(businessId) &&
+                         request.auth.uid != uid;
+      }
+
+      // -------------------------------------------------------------
+      // 2. Invoices Collection: /invoices/{invoiceId}
+      // -------------------------------------------------------------
+      match /invoices/{invoiceId} {
+        // Active members (Admin, Manager, Cashier) can read invoices
+        allow read: if isActiveMember(businessId);
+
+        // Active members (Admin, Manager, Cashier) can create invoices
+        allow create: if isActiveMember(businessId) &&
+                         isValidInvoice(request.resource.data, invoiceId);
+
+        // Role-based Update Permissions:
+        // - Admin: can update any valid invoice.
+        // - Manager: can update valid invoices UNLESS finalized/paid (paymentStatus == 'Paid').
+        // - Cashier: STRICTLY DENIED from updating any invoice.
+        // - Immutable fields (id, invoiceNumber, createdAt, createdBy) cannot change.
+        allow update: if isActiveMember(businessId) &&
+                         isValidInvoice(request.resource.data, invoiceId) &&
+                         areImmutableInvoiceFieldsUnchanged() &&
+                         (
+                           isAdmin(businessId) ||
+                           (isManager(businessId) && resource.data.paymentStatus != 'Paid')
+                         );
+
+        // Delete Permissions:
+        // Only active administrators can permanently delete invoice records.
+        // Managers and Cashiers are strictly denied.
+        allow delete: if isAdmin(businessId);
+      }
+
+      // -------------------------------------------------------------
+      // 3. Product Catalog Collection: /products/{productId}
+      // -------------------------------------------------------------
+      match /products/{productId} {
+        // Active members (Admin, Manager, Cashier) can read product catalog
+        allow read: if isActiveMember(businessId);
+
+        // Administrators and Managers can manage product catalog entries
+        // Cashiers are strictly denied from creating, updating, or deleting products
+        allow create: if (isAdmin(businessId) || isManager(businessId)) &&
+                         isValidProduct(request.resource.data, productId);
+
+        allow update: if (isAdmin(businessId) || isManager(businessId)) &&
+                         isValidProduct(request.resource.data, productId) &&
+                         areImmutableProductFieldsUnchanged();
+
+        allow delete: if isAdmin(businessId) || isManager(businessId);
+      }
+
+      // -------------------------------------------------------------
+      // 4. Customers Collection: /customers/{customerId}
+      // -------------------------------------------------------------
+      match /customers/{customerId} {
+        // Active members can read customer records
+        allow read: if isActiveMember(businessId);
+
+        // Administrators and Managers can manage customer directory
+        // Cashiers have read-only access
+        allow create: if (isAdmin(businessId) || isManager(businessId)) &&
+                         isValidCustomer(request.resource.data, customerId);
+
+        allow update: if (isAdmin(businessId) || isManager(businessId)) &&
+                         isValidCustomer(request.resource.data, customerId) &&
+                         areImmutableCustomerFieldsUnchanged();
+
+        allow delete: if isAdmin(businessId) || isManager(businessId);
+      }
+
+      // -------------------------------------------------------------
+      // 5. Store Settings Collection: /settings/{settingId}
+      // -------------------------------------------------------------
+      match /settings/{settingId} {
+        // Active members can read store settings and print configurations
+        allow read: if isActiveMember(businessId);
+
+        // Only administrators can modify business & printer configuration
+        // Managers and Cashiers are strictly denied from modifying settings
+        allow create: if isAdmin(businessId) &&
+                         isValidSetting(request.resource.data, settingId);
+
+        allow update: if isAdmin(businessId) &&
+                         isValidSetting(request.resource.data, settingId);
+
+        allow delete: if isAdmin(businessId);
+      }
+    }
+
+    // ===============================================================
+    // Section 4: Global Default Deny Catch-All
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

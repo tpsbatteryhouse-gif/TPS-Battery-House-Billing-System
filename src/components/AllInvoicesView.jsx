@@ -20,6 +20,7 @@ import {
   CATEGORY_CONFIG,
   normalizeInvoiceItem,
 } from '../utils/categories';
+import { useAuth } from '../context/useAuth';
 
 export default function AllInvoicesView({
   invoices,
@@ -32,6 +33,8 @@ export default function AllInvoicesView({
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState('newest'); // 'newest', 'oldest', 'amount-high', 'amount-low'
+  const authContext = useAuth();
+  const canDelete = authContext?.permissions ? authContext.permissions.canDeleteInvoice : true;
 
   const filteredInvoices = useMemo(() => {
     return invoices
@@ -323,14 +326,16 @@ export default function AllInvoicesView({
                             <Eye className="w-3.5 h-3.5" />
                             <span>Open</span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => onDeleteInvoice(inv.id || inv.invoiceNumber)}
-                            className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                            title="Delete invoice record"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteInvoice(inv.id || inv.invoiceNumber)}
+                              className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                              title="Delete invoice record (Administrator only)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  BatteryCharging,
   Printer,
   Download,
   Share2,
@@ -10,8 +9,6 @@ import {
   CheckCircle,
   Loader2,
   ArrowLeft,
-  LogIn,
-  Info,
 } from 'lucide-react';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
@@ -25,7 +22,7 @@ import InvoiceHistoryModal from './components/InvoiceHistoryModal';
 import BusinessSettingsModal from './components/BusinessSettingsModal';
 import ProductCatalogView from './components/ProductCatalogView';
 import { DEFAULT_BUSINESS, getSampleInvoiceData } from './utils/defaults';
-import { INITIAL_MOCK_INVOICES, MOCK_USER } from './data/mockData';
+import { INITIAL_MOCK_INVOICES } from './data/mockData';
 import {
   INITIAL_PRODUCT_CATALOG,
   PRODUCT_CATEGORIES,
@@ -37,20 +34,14 @@ import {
 import { downloadInvoicePdf } from './utils/pdfExport';
 import { calculateInvoiceTotals } from './utils/gstCalculations';
 import { formatINR } from './utils/numberToWords';
+import { AuthProvider } from './context/AuthContext';
+import { useAuth } from './context/useAuth';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 
-export default function App() {
+function AppContent({ business, setBusiness }) {
+  const { permissions, signOutUser } = useAuth();
   // Navigation View: 'dashboard' | 'invoices' | 'editor'
   const [activeView, setActiveView] = useState('dashboard');
-
-  // Business Profile
-  const [business, setBusiness] = useState(() => {
-    try {
-      const saved = localStorage.getItem('tps_business_profile');
-      return saved ? JSON.parse(saved) : DEFAULT_BUSINESS;
-    } catch {
-      return DEFAULT_BUSINESS;
-    }
-  });
 
   // Complete Invoices Dataset (Mock & User Created)
   const [invoices, setInvoices] = useState(() => {
@@ -95,7 +86,6 @@ export default function App() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [isLoggedOut, setIsLoggedOut] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
   // Editor View Mode: 'edit' (default: full-width editor), 'preview' (dedicated full-width preview), 'split' (optional side-by-side)
@@ -339,8 +329,12 @@ export default function App() {
     setTimeout(() => setIsSavedFeedback(false), 2500);
   };
 
-  // Delete Invoice from dataset
+  // Delete Invoice from dataset (Admin only)
   const handleDeleteInvoice = (idOrNumber) => {
+    if (permissions && !permissions.canDeleteInvoice) {
+      alert('Access Denied: Only store administrators are authorized to delete invoices.');
+      return;
+    }
     if (confirm('Are you sure you want to delete this invoice record?')) {
       setInvoices((prev) =>
         prev.filter((i) => i.id !== idOrNumber && i.invoiceNumber !== idOrNumber)
@@ -411,17 +405,6 @@ export default function App() {
     window.open(url, '_blank');
   };
 
-  // Simulated Sign Out
-  const handleSignOutSimulation = () => {
-    setIsLoggedOut(true);
-  };
-
-  // Simulated Re-login
-  const handleSignInSimulation = () => {
-    setIsLoggedOut(false);
-    showToast(`Welcome back, ${MOCK_USER.name}!`);
-  };
-
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-white">
       {/* Toast Notification Banner */}
@@ -432,56 +415,18 @@ export default function App() {
         </div>
       )}
 
-      {/* Simulated Sign Out Screen (when user clicks sign out) */}
-      {isLoggedOut ? (
-        <div className="min-h-screen flex items-center justify-center p-4 bg-slate-950">
-          <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl text-center space-y-5">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center mx-auto font-black shadow-lg shadow-amber-500/20">
-              <BatteryCharging className="w-8 h-8 stroke-[2.5]" />
-            </div>
-            <div className="space-y-1">
-              <h2 className="text-xl font-extrabold text-white">
-                {business.businessName}
-              </h2>
-              <p className="text-xs text-amber-400 font-mono">
-                Padinarangadi, Thrithala, Palakkad (GSTIN: {business.gstin})
-              </p>
-              <p className="text-xs text-slate-400 pt-2">
-                Simulated frontend session ended. Click below to re-enter demo dashboard as Administrator.
-              </p>
-            </div>
+      {/* Main Application Header */}
+      <Header
+        activeView={activeView}
+        setActiveView={setActiveView}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenProfile={() => setIsProfileOpen(true)}
+        onSignOut={signOutUser}
+        business={business}
+        totalInvoicesCount={invoices.length}
+      />
 
-            <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs text-left flex items-start gap-2">
-              <Info className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
-              <span>
-                Frontend Mock Notice: Authentication is client-side mock data without an external backend.
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSignInSimulation}
-              className="w-full py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-amber-500/20"
-            >
-              <LogIn className="w-4 h-4" />
-              <span>Sign In as Alex Johnson (Demo)</span>
-            </button>
-          </div>
-        </div>
-      ) : (
-        <>
-          {/* Main Application Header */}
-          <Header
-            activeView={activeView}
-            setActiveView={setActiveView}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            onOpenProfile={() => setIsProfileOpen(true)}
-            onSignOut={handleSignOutSimulation}
-            business={business}
-            totalInvoicesCount={invoices.length}
-          />
-
-          {/* Main Body View Switching */}
+      {/* Main Body View Switching */}
           <main className="flex-1 max-w-[1700px] w-full mx-auto p-3 sm:p-5 lg:p-6 pb-24 sm:pb-20">
             {/* VIEW 1: HOME DASHBOARD */}
             {activeView === 'dashboard' && (
@@ -871,7 +816,7 @@ export default function App() {
           <UserProfileModal
             isOpen={isProfileOpen}
             onClose={() => setIsProfileOpen(false)}
-            onSignOut={handleSignOutSimulation}
+            onSignOut={signOutUser}
           />
 
           {/* Store & Bank Settings Modal */}
@@ -891,8 +836,25 @@ export default function App() {
             onDeleteInvoice={handleDeleteInvoice}
             onClearHistory={() => setInvoices([])}
           />
-        </>
-      )}
     </div>
+  );
+}
+
+export default function App() {
+  const [business, setBusiness] = useState(() => {
+    try {
+      const saved = localStorage.getItem('tps_business_profile');
+      return saved ? JSON.parse(saved) : DEFAULT_BUSINESS;
+    } catch {
+      return DEFAULT_BUSINESS;
+    }
+  });
+
+  return (
+    <AuthProvider>
+      <ProtectedRoute business={business}>
+        <AppContent business={business} setBusiness={setBusiness} />
+      </ProtectedRoute>
+    </AuthProvider>
   );
 }
