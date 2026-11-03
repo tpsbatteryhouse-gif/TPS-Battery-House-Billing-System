@@ -50,9 +50,10 @@ const mockDb = {
         'disabled_cashier': { uid: 'disabled_cashier', role: 'cashier', status: 'disabled', email: 'discashier@tps.com' },
       },
       invoices: {
-        'inv_draft': { id: 'inv_draft', invoiceNumber: 'TPS/2026-27/001', paymentStatus: 'Draft' },
-        'inv_pending': { id: 'inv_pending', invoiceNumber: 'TPS/2026-27/002', paymentStatus: 'Pending' },
-        'inv_paid': { id: 'inv_paid', invoiceNumber: 'TPS/2026-27/003', paymentStatus: 'Paid' },
+        'inv_draft': { id: 'inv_draft', invoiceNumber: 'TPS/2026-27/001', paymentStatus: 'Draft', netPayable: 10000, items: [{ id: '1' }] },
+        'inv_pending': { id: 'inv_pending', invoiceNumber: 'TPS/2026-27/002', paymentStatus: 'Pending', netPayable: 20000, items: [{ id: '2' }] },
+        'inv_paid': { id: 'inv_paid', invoiceNumber: 'TPS/2026-27/003', paymentStatus: 'Paid', netPayable: 30000, items: [{ id: '3' }] },
+        'inv_cancelled': { id: 'inv_cancelled', invoiceNumber: 'TPS/2026-27/004', paymentStatus: 'Cancelled', netPayable: 40000, items: [{ id: '4' }] },
       },
     },
     'other-business': {
@@ -89,10 +90,17 @@ function evaluateRuleContext(authUid, businessId) {
     // Invoices
     canReadInvoices: () => isActiveMember,
     canCreateInvoice: () => isActiveMember,
-    canUpdateInvoice: (existingInvoice) => {
+    canUpdateInvoice: (existingInvoice, newInvoiceData) => {
       if (!isActiveMember) return false;
       if (isAdmin) return true;
-      if (isManager && existingInvoice?.paymentStatus !== 'Paid') return true;
+      if (isManager) {
+        if (['Paid', 'Cancelled'].includes(existingInvoice?.paymentStatus)) return false;
+        if (existingInvoice?.paymentStatus === 'Pending' && ['Paid', 'Cancelled'].includes(newInvoiceData?.paymentStatus)) {
+          if (newInvoiceData?.netPayable !== existingInvoice?.netPayable) return false;
+          if (JSON.stringify(newInvoiceData?.items) !== JSON.stringify(existingInvoice?.items)) return false;
+        }
+        return true;
+      }
       return false; // Cashier or unauthorized
     },
     canDeleteInvoice: () => isAdmin,
@@ -144,7 +152,9 @@ const cashier = evaluateRuleContext('cashier_1', 'tps-battery-house');
 assert(cashier.canReadInvoices() === true, 'Cashier CAN read invoices');
 assert(cashier.canCreateInvoice() === true, 'Cashier CAN create invoices');
 assert(cashier.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_draft) === false, 'Cashier CANNOT update draft invoice');
+assert(cashier.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_pending) === false, 'Cashier CANNOT update pending invoice');
 assert(cashier.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_paid) === false, 'Cashier CANNOT update paid invoice');
+assert(cashier.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_cancelled) === false, 'Cashier CANNOT update cancelled invoice');
 assert(cashier.canDeleteInvoice() === false, 'Cashier CANNOT delete invoice');
 assert(cashier.canReadProducts() === true, 'Cashier CAN read products');
 assert(cashier.canModifyProducts() === false, 'Cashier CANNOT modify products');
@@ -157,9 +167,13 @@ assert(cashier.canCreateMember('new_uid') === false, 'Cashier CANNOT create staf
 const manager = evaluateRuleContext('manager_1', 'tps-battery-house');
 assert(manager.canReadInvoices() === true, 'Manager CAN read invoices');
 assert(manager.canCreateInvoice() === true, 'Manager CAN create invoices');
-assert(manager.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_draft) === true, 'Manager CAN update draft invoice');
-assert(manager.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_pending) === true, 'Manager CAN update pending invoice');
+assert(manager.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_draft, { paymentStatus: 'Draft' }) === true, 'Manager CAN update draft invoice');
+assert(manager.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_pending, { paymentStatus: 'Pending', notes: 'Updated notes' }) === true, 'Manager CAN update pending invoice meta');
+assert(manager.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_pending, { paymentStatus: 'Paid', netPayable: 20000, items: [{ id: '2' }] }) === true, 'Manager CAN finalize pending invoice to Paid with identical financial totals');
+assert(manager.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_pending, { paymentStatus: 'Paid', netPayable: 15000, items: [{ id: '2' }] }) === false, 'Manager CANNOT alter netPayable when finalizing pending invoice to Paid');
+assert(manager.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_pending, { paymentStatus: 'Paid', netPayable: 20000, items: [{ id: '2_tampered' }] }) === false, 'Manager CANNOT alter line items when finalizing pending invoice to Paid');
 assert(manager.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_paid) === false, 'Manager CANNOT update finalized/paid invoice (protected!)');
+assert(manager.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_cancelled) === false, 'Manager CANNOT update cancelled invoice (protected!)');
 assert(manager.canDeleteInvoice() === false, 'Manager CANNOT delete invoices');
 assert(manager.canModifyProducts() === true, 'Manager CAN manage product catalog');
 assert(manager.canReadSettings() === true, 'Manager CAN read settings');
@@ -171,7 +185,8 @@ const admin = evaluateRuleContext('admin_1', 'tps-battery-house');
 assert(admin.canReadInvoices() === true, 'Admin CAN read invoices');
 assert(admin.canCreateInvoice() === true, 'Admin CAN create invoices');
 assert(admin.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_draft) === true, 'Admin CAN update draft invoice');
-assert(admin.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_paid) === true, 'Admin CAN update paid invoice');
+assert(admin.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_paid) === true, 'Admin CAN update paid invoice (authorized corrections)');
+assert(admin.canUpdateInvoice(mockDb.businesses['tps-battery-house'].invoices.inv_cancelled) === true, 'Admin CAN update cancelled invoice (authorized corrections)');
 assert(admin.canDeleteInvoice() === true, 'Admin CAN delete invoices');
 assert(admin.canModifyProducts() === true, 'Admin CAN manage product catalog');
 assert(admin.canModifySettings() === true, 'Admin CAN modify settings');
@@ -326,7 +341,9 @@ assert(mockIsValidProduct(newlyCreatedProduct, newlyCreatedProduct.id).valid ===
 console.log('\n--- PART 4: Verification of Specific Rule Lines ---');
 assert(rules.includes("allow read: if isActiveMember(businessId);"), 'Invoices allow read: if isActiveMember');
 assert(rules.includes("allow create: if isActiveMember(businessId) &&"), 'Invoices allow create: if isActiveMember && valid');
-assert(rules.includes("(isManager(businessId) && resource.data.paymentStatus != 'Paid')"), 'Manager invoice update explicitly excludes paymentStatus == "Paid"');
+assert(rules.includes("!(resource.data.paymentStatus in ['Paid', 'Cancelled'])"), 'Manager invoice update explicitly blocks Paid and Cancelled invoices');
+assert(rules.includes("request.resource.data.netPayable == resource.data.netPayable"), 'Manager finalization locks financial total');
+assert(rules.includes("request.resource.data.items == resource.data.items"), 'Manager finalization locks items array');
 assert(rules.includes("allow delete: if isAdmin(businessId);"), 'Invoices allow delete: if isAdmin ONLY');
 assert(rules.includes("allow create: if (isAdmin(businessId) || isManager(businessId))"), 'Product create: if isAdmin || isManager');
 assert(rules.includes("allow create: if isAdmin(businessId) &&\n                         isValidSetting"), 'Settings create: if isAdmin ONLY');

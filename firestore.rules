@@ -372,16 +372,30 @@ service cloud.firestore {
                          isValidInvoice(request.resource.data, invoiceId);
 
         // Role-based Update Permissions:
-        // - Admin: can update any valid invoice.
-        // - Manager: can update valid invoices UNLESS finalized/paid (paymentStatus == 'Paid').
+        // - Admin: can update any valid invoice (retains authorized correction rights).
+        // - Manager:
+        //     1. CANNOT modify invoices whose existing paymentStatus is 'Paid' or 'Cancelled'.
+        //     2. When transitioning an issued invoice ('Pending') into a finalized state ('Paid' or 'Cancelled'),
+        //        financial details (netPayable and items) CANNOT be modified simultaneously.
         // - Cashier: STRICTLY DENIED from updating any invoice.
-        // - Immutable fields (id, invoiceNumber, createdAt, createdBy) cannot change.
+        // - In all cases, immutable fields (id, invoiceNumber, createdAt, createdBy) cannot change.
         allow update: if isActiveMember(businessId) &&
                          isValidInvoice(request.resource.data, invoiceId) &&
                          areImmutableInvoiceFieldsUnchanged() &&
                          (
                            isAdmin(businessId) ||
-                           (isManager(businessId) && resource.data.paymentStatus != 'Paid')
+                           (
+                             isManager(businessId) &&
+                             !(resource.data.paymentStatus in ['Paid', 'Cancelled']) &&
+                             (
+                               resource.data.paymentStatus != 'Pending' ||
+                               !(request.resource.data.paymentStatus in ['Paid', 'Cancelled']) ||
+                               (
+                                 request.resource.data.netPayable == resource.data.netPayable &&
+                                 request.resource.data.items == resource.data.items
+                               )
+                             )
+                           )
                          );
 
         // Delete Permissions:
