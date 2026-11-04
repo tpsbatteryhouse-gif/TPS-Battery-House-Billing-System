@@ -15,6 +15,10 @@ import {
   Sun,
   Zap,
   BatteryCharging,
+  RefreshCw,
+  CloudOff,
+  AlertCircle,
+  Lock,
 } from 'lucide-react';
 import {
   PRODUCT_CATEGORIES,
@@ -24,18 +28,29 @@ import {
 } from '../utils/categories';
 import { formatNumber } from '../utils/numberToWords';
 import { generateId } from '../utils/idGenerator';
+import { useAuth } from '../context/useAuth';
 
 export default function ProductCatalogView({
   catalog = [],
   setCatalog,
   onAddToInvoice,
   _onNavigateToEditor,
+  onSaveProduct,
+  onDeleteProduct,
+  syncStatus = 'synced',
+  syncError = null,
+  onRefresh,
+  loading = false,
 }) {
+  const { permissions } = useAuth();
+  const canManage = permissions?.canManageCatalog ?? true;
+
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedBrand, setSelectedBrand] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [editingProduct, setEditingProduct] = useState(null); // null or product object
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
   const showToast = (msg) => {
@@ -122,16 +137,33 @@ export default function ProductCatalogView({
   };
 
   // Delete product with confirmation
-  const handleDelete = (id, name) => {
+  const handleDelete = async (id, name) => {
+    if (!canManage) {
+      alert('Permission Denied: Only Store Managers and Administrators can delete products.');
+      return;
+    }
     if (window.confirm(`Are you sure you want to remove "${name}" from the product catalog?`)) {
-      setCatalog((prev) => prev.filter((p) => p.id !== id));
-      showToast(`Removed "${name}" from catalog.`);
+      try {
+        if (onDeleteProduct) {
+          await onDeleteProduct(id);
+        } else if (setCatalog) {
+          setCatalog((prev) => prev.filter((p) => p.id !== id));
+        }
+        showToast(`Removed "${name}" from catalog.`);
+      } catch (err) {
+        console.error('Failed to delete product:', err);
+        alert(`Could not delete product: ${err.message || 'Permission denied or network failure'}`);
+      }
     }
   };
 
   // Save product (create or update)
-  const handleSaveProduct = (e) => {
+  const handleSaveProduct = async (e) => {
     e.preventDefault();
+    if (!canManage) {
+      alert('Permission Denied: Only Store Managers and Administrators can add or edit products.');
+      return;
+    }
     if (!editingProduct.name.trim()) {
       alert('Product name is required.');
       return;
@@ -142,19 +174,31 @@ export default function ProductCatalogView({
       updatedAt: new Date().toISOString(),
     };
 
-    setCatalog((prev) => {
-      const idx = prev.findIndex((p) => p.id === updatedProduct.id);
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = updatedProduct;
-        return copy;
+    setIsSubmitting(true);
+    try {
+      if (onSaveProduct) {
+        await onSaveProduct(updatedProduct);
+      } else if (setCatalog) {
+        setCatalog((prev) => {
+          const idx = prev.findIndex((p) => p.id === updatedProduct.id);
+          if (idx >= 0) {
+            const copy = [...prev];
+            copy[idx] = updatedProduct;
+            return copy;
+          }
+          return [updatedProduct, ...prev];
+        });
       }
-      return [updatedProduct, ...prev];
-    });
 
-    setIsModalOpen(false);
-    setEditingProduct(null);
-    showToast(`Product "${updatedProduct.name}" saved!`);
+      setIsModalOpen(false);
+      setEditingProduct(null);
+      showToast(`Product "${updatedProduct.name}" saved!`);
+    } catch (err) {
+      console.error('Failed to save product:', err);
+      alert(`Could not save product to Firestore: ${err.message || 'Permission denied or network failure'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Category Icon component
@@ -191,9 +235,36 @@ export default function ProductCatalogView({
               <Layers className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                TPS Product & Services Catalog
-              </h1>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                  TPS Product & Services Catalog
+                </h1>
+                {/* Sync status indicator */}
+                {syncStatus === 'synced' && (
+                  <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" title="Connected to Cloud Firestore">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Cloud Synced
+                  </span>
+                )}
+                {syncStatus === 'syncing' && (
+                  <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                    Syncing...
+                  </span>
+                )}
+                {syncStatus === 'offline' && (
+                  <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-700/50 text-slate-300 border border-slate-600" title="Using local offline cache">
+                    <CloudOff className="w-2.5 h-2.5 text-slate-400" />
+                    Offline Cache
+                  </span>
+                )}
+                {syncStatus === 'error' && (
+                  <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20" title={syncError || 'Sync error'}>
+                    <AlertCircle className="w-2.5 h-2.5" />
+                    Sync Error
+                  </span>
+                )}
+              </div>
               <p className="text-xs sm:text-sm text-slate-400">
                 Manage all product lines: Batteries, Inverters, Solar Systems, and Installation Services
               </p>
@@ -201,15 +272,35 @@ export default function ProductCatalogView({
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 self-start md:self-auto">
-          <button
-            type="button"
-            onClick={handleCreateNew}
-            className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs sm:text-sm flex items-center gap-2 transition-all shadow-lg shadow-amber-500/20"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Add New Product</span>
-          </button>
+        <div className="flex items-center gap-2.5 self-start md:self-auto flex-wrap">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
+              className="p-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white rounded-xl text-xs flex items-center gap-1.5 border border-slate-700 transition-colors disabled:opacity-50"
+              title="Refresh catalog from Firestore"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-amber-400' : ''}`} />
+              <span className="hidden sm:inline text-xs">Refresh</span>
+            </button>
+          )}
+
+          {!canManage ? (
+            <div className="px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-xl text-xs font-medium text-slate-400 flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-amber-400" />
+              <span>Catalog Read-Only (Cashier)</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleCreateNew}
+              className="px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs sm:text-sm flex items-center gap-2 transition-all shadow-lg shadow-amber-500/20"
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              <span>Add New Product</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -294,7 +385,19 @@ export default function ProductCatalogView({
       </div>
 
       {/* Product Cards Grid */}
-      {filteredProducts.length === 0 ? (
+      {loading && catalog.length === 0 ? (
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-4">
+          <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20">
+            <RefreshCw className="w-7 h-7 animate-spin" />
+          </div>
+          <div>
+            <h3 className="text-base font-bold text-white">Loading Catalog...</h3>
+            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+              Synchronizing product catalog with Cloud Firestore.
+            </p>
+          </div>
+        </div>
+      ) : filteredProducts.length === 0 ? (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-12 text-center space-y-4">
           <div className="w-14 h-14 mx-auto rounded-2xl bg-slate-800 flex items-center justify-center text-slate-500">
             <Package className="w-7 h-7" />
@@ -304,17 +407,21 @@ export default function ProductCatalogView({
             <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
               {searchQuery || selectedCategory !== 'all' || selectedBrand !== 'all'
                 ? 'Try adjusting your search criteria or category filter.'
-                : 'Your catalog is empty. Click "Add New Product" to populate items.'}
+                : canManage
+                ? 'Your catalog is empty. Click "Add New Product" to populate items.'
+                : 'No products are currently available in the catalog.'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={handleCreateNew}
-            className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs inline-flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Add First Product
-          </button>
+          {canManage && (
+            <button
+              type="button"
+              onClick={handleCreateNew}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs inline-flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add First Product
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -396,22 +503,26 @@ export default function ProductCatalogView({
                   </div>
 
                   <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => handleEdit(prod)}
-                      className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
-                      title="Edit Product"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(prod.id, prod.name)}
-                      className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors border border-transparent hover:border-rose-500/20"
-                      title="Delete Product"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {canManage && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(prod)}
+                          className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-700"
+                          title="Edit Product"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(prod.id, prod.name)}
+                          className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors border border-transparent hover:border-rose-500/20"
+                          title="Delete Product"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -850,10 +961,22 @@ export default function ProductCatalogView({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-amber-500/20"
+                  disabled={isSubmitting}
+                  className={`px-5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-amber-500/20 transition-all ${
+                    isSubmitting ? 'opacity-60 cursor-not-allowed' : ''
+                  }`}
                 >
-                  <Check className="w-4 h-4 stroke-[2.5]" />
-                  <span>Save Product</span>
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4 stroke-[2.5]" />
+                      <span>Save Product</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>

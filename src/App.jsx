@@ -24,7 +24,6 @@ import ProductCatalogView from './components/ProductCatalogView';
 import { DEFAULT_BUSINESS, getSampleInvoiceData } from './utils/defaults';
 import { INITIAL_MOCK_INVOICES } from './data/mockData';
 import {
-  INITIAL_PRODUCT_CATALOG,
   PRODUCT_CATEGORIES,
   CATEGORY_CONFIG,
   TRANSACTION_TYPES,
@@ -36,6 +35,8 @@ import { calculateInvoiceTotals } from './utils/gstCalculations';
 import { formatINR } from './utils/numberToWords';
 import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './context/useAuth';
+import { DEFAULT_BUSINESS_ID } from './context/authConstants';
+import { useProductCatalog } from './hooks/useProductCatalog';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
 function AppContent({ business, setBusiness }) {
@@ -67,19 +68,17 @@ function AppContent({ business, setBusiness }) {
     }
   });
 
-  // Centralized Product Catalog Dataset
-  const [catalog, setCatalog] = useState(() => {
-    try {
-      const saved = localStorage.getItem('tps_product_catalog');
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-      return INITIAL_PRODUCT_CATALOG;
-    } catch {
-      return INITIAL_PRODUCT_CATALOG;
-    }
-  });
+  // Centralized Product Catalog Dataset with Firestore Realtime Sync & Offline Cache
+  const {
+    catalog,
+    setCatalog,
+    loading: catalogLoading,
+    error: catalogError,
+    syncStatus: catalogSyncStatus,
+    saveProduct,
+    removeProduct,
+    refreshCatalog,
+  } = useProductCatalog(DEFAULT_BUSINESS_ID);
 
   // UI Modal & Control States
   const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
@@ -752,6 +751,12 @@ function AppContent({ business, setBusiness }) {
               <ProductCatalogView
                 catalog={catalog}
                 setCatalog={setCatalog}
+                onSaveProduct={saveProduct}
+                onDeleteProduct={removeProduct}
+                syncStatus={catalogSyncStatus}
+                syncError={catalogError}
+                onRefresh={refreshCatalog}
+                loading={catalogLoading}
                 onAddToInvoice={(prod) => {
                   handleAddProductToActiveBill(prod);
                   setActiveView('editor');
