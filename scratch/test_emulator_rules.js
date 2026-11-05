@@ -1,6 +1,6 @@
 import fs from 'fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, getDocs, collection } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, getDocs, collection, runTransaction } from 'firebase/firestore';
 
 const EMULATOR_HOST = '127.0.0.1';
 const EMULATOR_PORT = 8980;
@@ -146,6 +146,12 @@ async function runEmulatorTestSuite() {
         createdAt: '2026-11-03T10:00:00.000Z',
       });
 
+      // Initialized counter for FY 2026-27
+      await setDoc(doc(db, 'businesses', BIZ_ID, 'counters', 'invoices_2026-27'), {
+        lastSeq: 49,
+        prefix: 'TPS/2026-27/',
+      });
+
       // Another business for cross-tenant isolation test
       await setDoc(doc(db, 'businesses', 'other-business', 'members', 'other_admin'), {
         uid: 'other_admin',
@@ -233,18 +239,37 @@ async function runEmulatorTestSuite() {
     console.log('\n--- SCENARIO 4: Cashier Invoice Permissions ---');
     await checkPass(assertSucceeds(getDoc(doc(cashierDb, 'businesses', BIZ_ID, 'invoices', 'inv_draft'))), 'Cashier CAN read invoices');
 
-    // Cashier creating valid invoice
-    await checkPass(assertSucceeds(setDoc(doc(cashierDb, 'businesses', BIZ_ID, 'invoices', 'inv_cashier_01'), {
-      id: 'inv_cashier_01',
-      invoiceNumber: 'TPS/2026-27/050',
-      invoiceDate: '2026-11-03',
-      dueDate: '2026-11-03',
-      paymentStatus: 'Paid',
-      paymentMode: 'Cash',
-      customer: { name: 'Counter Customer' },
-      items: [{ id: 'item-c1', name: 'Tall Tubular Battery', qty: 1 }],
-      netPayable: 14800,
-      createdAt: new Date().toISOString(),
+    // Cashier creating valid invoice atomically with counter update
+    await checkPass(assertSucceeds(runTransaction(cashierDb, async (txn) => {
+      const counterRef = doc(cashierDb, 'businesses', BIZ_ID, 'counters', 'invoices_2026-27');
+      txn.update(counterRef, {
+        lastSeq: 50,
+        prefix: 'TPS/2026-27/',
+        lastInvoiceId: 'inv_cashier_01',
+        lastInvoiceNumber: 'TPS/2026-27/050',
+        updatedAt: new Date().toISOString(),
+        updatedBy: 'cashier_1',
+      });
+      txn.set(doc(cashierDb, 'businesses', BIZ_ID, 'invoice_numbers', 'TPS_2026-27_050'), {
+        invoiceId: 'inv_cashier_01',
+        invoiceNumber: 'TPS/2026-27/050',
+        financialYear: '2026-27',
+        createdAt: new Date().toISOString(),
+        createdBy: 'cashier_1',
+      });
+      txn.set(doc(cashierDb, 'businesses', BIZ_ID, 'invoices', 'inv_cashier_01'), {
+        id: 'inv_cashier_01',
+        invoiceNumber: 'TPS/2026-27/050',
+        financialYear: '2026-27',
+        invoiceDate: '2026-11-03',
+        dueDate: '2026-11-03',
+        paymentStatus: 'Paid',
+        paymentMode: 'Cash',
+        customer: { name: 'Counter Customer' },
+        items: [{ id: 'item-c1', name: 'Tall Tubular Battery', qty: 1 }],
+        netPayable: 14800,
+        createdAt: new Date().toISOString(),
+      });
     })), 'Cashier CAN create valid customer invoice');
 
     // Cashier CANNOT update or delete

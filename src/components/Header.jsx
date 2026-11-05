@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   ReceiptText,
   Package,
+  Users,
 } from 'lucide-react';
 import { MOCK_USER } from '../data/mockData';
 import { useAuth } from '../context/useAuth';
@@ -177,6 +178,19 @@ export default function Header({
           >
             <Package className="w-3.5 h-3.5" />
             <span>Catalog</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveView('customers')}
+            className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all font-medium ${
+              activeView === 'customers'
+                ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                : 'text-slate-400 hover:text-white hover:bg-slate-850'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Customers</span>
           </button>
         </nav>
 

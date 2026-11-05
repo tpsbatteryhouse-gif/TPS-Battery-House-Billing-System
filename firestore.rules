@@ -89,6 +89,7 @@ service cloud.firestore {
     // Validate optional string field constraints
     function isValidOptionalString(data, field, minLen, maxLen) {
       return !(field in data) ||
+        data[field] == null ||
         (data[field] is string &&
          data[field].size() >= minLen &&
          data[field].size() <= maxLen);
@@ -140,7 +141,7 @@ service cloud.firestore {
           'poNumber', 'ewayBillNo', 'irn',
           'customer', 'items', 'scrapExchange', 'additionalDiscount',
           'roundOffManual', 'netPayable', 'notes', 'createdAt', 'savedAt',
-          'createdBy', 'updatedAt', 'updatedBy'
+          'createdBy', 'updatedAt', 'updatedBy', 'financialYear'
         ]) &&
         data.id is string &&
         data.id == invoiceId &&
@@ -192,6 +193,7 @@ service cloud.firestore {
         (!('roundOffManual' in data) || data.roundOffManual == null || data.roundOffManual is number) &&
         isValidOptionalString(data, 'createdBy', 1, 128) &&
         isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        (!('financialYear' in data) || (data.financialYear is string && data.financialYear.matches('^[0-9]{4}-[0-9]{2}$'))) &&
         (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
     }
 
@@ -316,6 +318,62 @@ service cloud.firestore {
         isValidOptionalString(data, 'name', 1, 150);
     }
 
+    // Sequential Counter Document Validator
+    function isValidCounter(data, counterId) {
+      return counterId is string &&
+        counterId.size() >= 1 &&
+        counterId.size() <= 64 &&
+        data.keys().hasOnly([
+          'lastSeq', 'prefix', 'updatedAt', 'updatedBy', 'status',
+          'startedAt', 'startedBy', 'completedAt', 'total', 'count',
+          'maxSeq', 'maxSeqPerFy', 'migrated', 'alreadyPresent',
+          'totalScanned', 'ownerToken', 'leaseExpiresAt', 'renewedAt',
+          'lastInvoiceId', 'lastInvoiceNumber'
+        ]) &&
+        (!('lastSeq' in data) || (data.lastSeq is number && data.lastSeq >= 0)) &&
+        isValidOptionalString(data, 'prefix', 1, 50) &&
+        isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        isValidOptionalString(data, 'updatedAt', 1, 64) &&
+        isValidOptionalString(data, 'status', 1, 30) &&
+        isValidOptionalString(data, 'ownerToken', 1, 128) &&
+        isValidOptionalString(data, 'leaseExpiresAt', 1, 64) &&
+        isValidOptionalString(data, 'renewedAt', 1, 64) &&
+        isValidOptionalString(data, 'lastInvoiceId', 1, 64) &&
+        isValidOptionalString(data, 'lastInvoiceNumber', 1, 64);
+    }
+
+    // Convert invoiceNumber forward slashes to underscores for valid document IDs
+    function getReservationDocId(invoiceNumber) {
+      return invoiceNumber.replace('/', '_').replace('/', '_');
+    }
+
+    // Validate financialYear matches invoiceDate (Indian GST fiscal calendar Apr 1 - Mar 31)
+    function isValidFinancialYearForDate(dateStr, fy) {
+      let yr = dateStr[0:4];
+      let mo = dateStr[5:7];
+      return dateStr.size() >= 10 &&
+        ((mo in ['04','05','06','07','08','09','10','11','12'] && fy.matches('^' + yr + '-[0-9]{2}$')) ||
+         (mo in ['01','02','03'] && fy.matches('^[0-9]{4}-' + yr[2:4] + '$')));
+    }
+
+    // Invoice Number Uniqueness Reservation Document Validator
+    function isValidInvoiceReservation(data, reservationId) {
+      return reservationId is string &&
+        reservationId.size() >= 1 &&
+        reservationId.size() <= 64 &&
+        data.keys().hasAll(['invoiceId', 'invoiceNumber', 'financialYear', 'createdAt', 'createdBy']) &&
+        data.keys().hasOnly(['invoiceId', 'invoiceNumber', 'financialYear', 'createdAt', 'createdBy']) &&
+        data.invoiceId is string &&
+        data.invoiceId.size() >= 1 &&
+        data.invoiceId.size() <= 64 &&
+        data.invoiceNumber is string &&
+        data.invoiceNumber.size() >= 1 &&
+        data.invoiceNumber.size() <= 64 &&
+        data.financialYear is string &&
+        data.financialYear.matches('^[0-9]{4}-[0-9]{2}$') &&
+        getReservationDocId(data.invoiceNumber) == reservationId;
+    }
+
     // ===============================================================
     // Section 3: Scoped Security Rules: /businesses/{businessId}
     // ===============================================================
@@ -368,8 +426,50 @@ service cloud.firestore {
         allow read: if isActiveMember(businessId);
 
         // Active members (Admin, Manager, Cashier) can create invoices
+        // 1. Drafts are exempt from counter initialization to allow offline/provisional staging.
+        // 2. Administrator historical migration import is ONLY allowed during active migration lock.
+        // 3. Permanent normal billing invoices (Admin, Manager, Cashier) must be atomically linked
+        //    to a matching counter increment and a uniqueness reservation in the same transaction.
         allow create: if isActiveMember(businessId) &&
-                         isValidInvoice(request.resource.data, invoiceId);
+                         isValidInvoice(request.resource.data, invoiceId) &&
+                         (
+                           // Draft invoices are exempt from counter and uniqueness reservations
+                           request.resource.data.paymentStatus == 'Draft' ||
+
+                           // Administrator historical migration import:
+                           // Strictly permitted ONLY when the administrator holds the active migration lock
+                           // and commits the uniqueness reservation document in the same operation.
+                           (
+                             isAdmin(businessId) &&
+                             exists(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status) &&
+                             get(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status).data.status == 'in_progress' &&
+                             get(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status).data.startedBy == request.auth.uid &&
+                             existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoice_numbers/$(getReservationDocId(request.resource.data.invoiceNumber)))
+                           ) ||
+
+                           // Normal Billing (Applies equally to Admin, Manager, and Cashier):
+                           // - Financial year strictly matches invoice date (Apr 1 - Mar 31)
+                           // - Counter document must exist and migration must not be active
+                           // - Counter increment and invoice must match bi-directionally
+                           // - Uniqueness reservation must be created in the same transaction
+                           (
+                             ('financialYear' in request.resource.data &&
+                              isValidFinancialYearForDate(request.resource.data.invoiceDate, request.resource.data.financialYear) &&
+                              exists(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear ))) &&
+                             (
+                               !exists(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status) ||
+                               get(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status).data.status != 'in_progress'
+                             ) &&
+                             (
+                               existsAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear )) &&
+                               ('lastInvoiceId' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear )).data &&
+                                getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear )).data.lastInvoiceId == invoiceId) &&
+                               ('lastInvoiceNumber' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear )).data &&
+                                getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear )).data.lastInvoiceNumber == request.resource.data.invoiceNumber)
+                             ) &&
+                             existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoice_numbers/$(getReservationDocId(request.resource.data.invoiceNumber)))
+                           )
+                         );
 
         // Role-based Update Permissions:
         // - Admin: can update any valid invoice (retains authorized correction rights).
@@ -458,6 +558,90 @@ service cloud.firestore {
                          isValidSetting(request.resource.data, settingId);
 
         allow delete: if isAdmin(businessId);
+      }
+
+      // -------------------------------------------------------------
+      // 6. Sequential Counters Collection: /counters/{counterId}
+      // -------------------------------------------------------------
+      match /counters/{counterId} {
+        // Active members (Admin, Manager, Cashier) can read sequential counters
+        allow read: if isActiveMember(businessId);
+
+        // Only administrators can create / initialize counter documents
+        // Cashiers and Managers CANNOT initialize counters or create arbitrary counters
+        allow create: if isAdmin(businessId) &&
+                         isValidCounter(request.resource.data, counterId);
+
+        // Update Permissions:
+        // - Admin: can update counters (for maintenance, migration, or recovery)
+        //          guarded against sequence rollbacks (request.lastSeq >= resource.lastSeq)
+        // - Manager & Cashier:
+        //     * Strictly sequential monotonic increment: lastSeq == resource.data.lastSeq + 1
+        //     * Must preserve prefix: (!('prefix' in resource.data) || request.resource.data.prefix == resource.data.prefix)
+        //     * Audit identity verified: (!('updatedBy' in request.resource.data) || request.resource.data.updatedBy == request.auth.uid)
+        //     * Bi-directional transaction linkage: must correspond to a valid permanent invoice in the same transaction
+        //     * Number verification: lastInvoiceNumber must match prefix + formatted sequential number
+        allow update: if isActiveMember(businessId) &&
+                         isValidCounter(request.resource.data, counterId) &&
+                         (
+                           (
+                             isAdmin(businessId) &&
+                             (
+                               // 1. Admin maintenance / migration seeding / lock renewal (no new lastInvoiceId being linked)
+                               (!('lastInvoiceId' in request.resource.data) ||
+                                ('lastInvoiceId' in resource.data && request.resource.data.lastInvoiceId == resource.data.lastInvoiceId)) ||
+                               // 2. Admin normal billing: strictly sequential increment matching invoice
+                               (
+                                 request.resource.data.lastSeq == resource.data.lastSeq + 1 &&
+                                 (!('prefix' in resource.data) || request.resource.data.prefix == resource.data.prefix) &&
+                                 ('lastInvoiceNumber' in request.resource.data && request.resource.data.lastInvoiceNumber is string) &&
+                                 request.resource.data.lastInvoiceNumber.matches('^' + resource.data.prefix + '0*' + string(request.resource.data.lastSeq) + '$') &&
+                                 existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)) &&
+                                 getAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)).data.invoiceNumber == request.resource.data.lastInvoiceNumber &&
+                                 getAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)).data.paymentStatus != 'Draft'
+                               )
+                             ) &&
+                             (!('lastSeq' in resource.data) || !('lastSeq' in request.resource.data) || request.resource.data.lastSeq >= resource.data.lastSeq)
+                           ) ||
+                           (
+                             request.resource.data.lastSeq == resource.data.lastSeq + 1 &&
+                             (!('prefix' in resource.data) || request.resource.data.prefix == resource.data.prefix) &&
+                             (!('updatedBy' in request.resource.data) || request.resource.data.updatedBy == request.auth.uid) &&
+                             ('lastInvoiceId' in request.resource.data && request.resource.data.lastInvoiceId is string) &&
+                             (!('lastInvoiceId' in resource.data) || request.resource.data.lastInvoiceId != resource.data.lastInvoiceId) &&
+                             ('lastInvoiceNumber' in request.resource.data && request.resource.data.lastInvoiceNumber is string) &&
+                             request.resource.data.lastInvoiceNumber.matches('^' + resource.data.prefix + '0*' + string(request.resource.data.lastSeq) + '$') &&
+                             existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)) &&
+                             getAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)).data.invoiceNumber == request.resource.data.lastInvoiceNumber &&
+                             getAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)).data.paymentStatus != 'Draft'
+                           )
+                         );
+
+        // Only active administrators can delete counter documents
+        allow delete: if isAdmin(businessId);
+      }
+
+      // -------------------------------------------------------------
+      // 7. Invoice Number Reservations: /invoice_numbers/{safeNumber}
+      // -------------------------------------------------------------
+      match /invoice_numbers/{safeNumber} {
+        // Active members can read to check existence or verify availability
+        allow read: if isActiveMember(businessId);
+
+        // Can only be created by an active member if:
+        // 1. It does not already exist (!exists) - document key collision engine prevents duplicates
+        // 2. Data matches schema (isValidInvoiceReservation)
+        // 3. Atomically linked to the invoice document being created in the same transaction:
+        //    existsAfter(invoice) && invoice.invoiceNumber == request.resource.data.invoiceNumber
+        allow create: if isActiveMember(businessId) &&
+                         !exists(/databases/$(database)/documents/businesses/$(businessId)/invoice_numbers/$(safeNumber)) &&
+                         isValidInvoiceReservation(request.resource.data, safeNumber) &&
+                         existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.invoiceId)) &&
+                         getAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.invoiceId)).data.invoiceNumber == request.resource.data.invoiceNumber;
+
+        // PERMANENT: Reservations can NEVER be updated or deleted under any circumstances (even by Admin!)
+        // This guarantees that even if an invoice is deleted, its invoice number can NEVER be reused.
+        allow update, delete: if false;
       }
     }
 
