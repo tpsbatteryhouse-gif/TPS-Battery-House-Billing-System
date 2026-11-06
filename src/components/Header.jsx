@@ -12,6 +12,7 @@ import {
   ReceiptText,
   Package,
   Users,
+  UserCheck,
 } from 'lucide-react';
 import { MOCK_USER } from '../data/mockData';
 import { useAuth } from '../context/useAuth';
@@ -192,6 +193,21 @@ export default function Header({
             <Users className="w-3.5 h-3.5" />
             <span>Customers</span>
           </button>
+
+          {permissions?.canManageStaff && (
+            <button
+              type="button"
+              onClick={() => setActiveView('staff')}
+              className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all font-medium ${
+                activeView === 'staff'
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-850'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>Staff</span>
+            </button>
+          )}
         </nav>
 
         {/* Right Section: Date, Live Digital Clock & User Profile */}
@@ -278,6 +294,20 @@ export default function Header({
                     <User className="w-3.5 h-3.5 text-amber-400" />
                     <span>My Staff Profile</span>
                   </button>
+
+                  {permissions?.canManageStaff && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsDropdownOpen(false);
+                        setActiveView('staff');
+                      }}
+                      className="w-full px-3.5 py-2 text-left text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                    >
+                      <UserCheck className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Staff Administration</span>
+                    </button>
+                  )}
 
                   {(!permissions || permissions.canManageSettings) && (
                     <button

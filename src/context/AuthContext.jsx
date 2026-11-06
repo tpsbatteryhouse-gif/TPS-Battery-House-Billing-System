@@ -5,7 +5,7 @@ import {
   signOut,
   onAuthStateChanged,
 } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../firebase/firebase';
 import {
   getPermissionsForRole,
@@ -89,13 +89,64 @@ export function AuthProvider({ children, businessId = DEFAULT_BUSINESS_ID }) {
   );
 
   /**
-   * Listen to Firebase Auth state changes
+   * Listen to Firebase Auth state changes and real-time staff membership updates
    */
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    let memberUnsubscribe = null;
+
+    const authUnsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      if (memberUnsubscribe) {
+        memberUnsubscribe();
+        memberUnsubscribe = null;
+      }
+
       if (currentUser) {
         await fetchMembership(currentUser);
+
+        // Real-time listener on member document for immediate revocation or role updates
+        try {
+          const memberRef = doc(db, 'businesses', businessId, 'members', currentUser.uid);
+          memberUnsubscribe = onSnapshot(
+            memberRef,
+            (snapshot) => {
+              if (!snapshot.exists()) {
+                setMember(null);
+                setAuthStatus(AUTH_STATUS.UNAUTHORIZED);
+                return;
+              }
+
+              const data = snapshot.data();
+              if (data.status !== ACCOUNT_STATUS.ACTIVE) {
+                setMember({ ...data, uid: currentUser.uid });
+                setAuthStatus(AUTH_STATUS.DISABLED);
+                return;
+              }
+
+              const validRoles = Object.values(ROLES);
+              const role = validRoles.includes(data.role) ? data.role : ROLES.CASHIER;
+
+              setMember({
+                uid: currentUser.uid,
+                email: data.email || currentUser.email,
+                displayName: data.displayName || currentUser.displayName || 'Staff Member',
+                role,
+                status: ACCOUNT_STATUS.ACTIVE,
+                createdAt: data.createdAt || null,
+                createdBy: data.createdBy || null,
+                updatedAt: data.updatedAt || null,
+                updatedBy: data.updatedBy || null,
+              });
+              setAuthStatus(AUTH_STATUS.AUTHORIZED);
+            },
+            (error) => {
+              // Gracefully handle permission changes on account deactivation
+              console.warn('[AuthContext] Member snapshot update:', error?.message);
+            }
+          );
+        } catch (listenerErr) {
+          console.error('[AuthContext] Failed to attach member listener:', listenerErr);
+        }
       } else {
         setMember(null);
         setAuthStatus(AUTH_STATUS.UNAUTHENTICATED);
@@ -103,9 +154,12 @@ export function AuthProvider({ children, businessId = DEFAULT_BUSINESS_ID }) {
     });
 
     return () => {
-      unsubscribe();
+      if (memberUnsubscribe) {
+        memberUnsubscribe();
+      }
+      authUnsubscribe();
     };
-  }, [fetchMembership]);
+  }, [fetchMembership, businessId]);
 
   /**
    * Initiate Google Sign-In with popup

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ShieldX,
   LogOut,
@@ -8,16 +8,44 @@ import {
   UserCheck,
   AlertOctagon,
   Building2,
+  Send,
+  Clock,
+  XCircle,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
-import { AUTH_STATUS } from '../../context/authConstants';
+import { AUTH_STATUS, DEFAULT_BUSINESS_ID } from '../../context/authConstants';
+import {
+  getPendingRegistration,
+  submitPendingRegistration,
+} from '../../firebase/services/staffService';
 
 export default function UnauthorizedPage({ business }) {
   const { user, authStatus, signOutUser, refreshMembership } = useAuth();
   const [copied, setCopied] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingReq, setPendingReq] = useState(null);
+  const [reqError, setReqError] = useState(null);
 
+  const businessId = business?.id || DEFAULT_BUSINESS_ID;
   const isDisabled = authStatus === AUTH_STATUS.DISABLED;
+
+  // Load existing pending registration if present
+  useEffect(() => {
+    let isMounted = true;
+    if (user?.uid && !isDisabled) {
+      getPendingRegistration(businessId, user.uid)
+        .then((req) => {
+          if (isMounted) setPendingReq(req);
+        })
+        .catch((err) => {
+          console.warn('[UnauthorizedPage] Error fetching pending registration:', err);
+        });
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [businessId, user?.uid, isDisabled]);
 
   const handleCopyUid = () => {
     if (user?.uid) {
@@ -30,9 +58,28 @@ export default function UnauthorizedPage({ business }) {
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
+      if (user?.uid) {
+        const req = await getPendingRegistration(businessId, user.uid);
+        setPendingReq(req);
+      }
       await refreshMembership();
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleSubmitRequest = async () => {
+    if (!user) return;
+    setIsSubmitting(true);
+    setReqError(null);
+    try {
+      const res = await submitPendingRegistration(businessId, user);
+      setPendingReq(res);
+    } catch (err) {
+      console.error('Failed to submit access request:', err);
+      setReqError(err.message || 'Failed to submit access request.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -65,7 +112,7 @@ export default function UnauthorizedPage({ business }) {
             <p className="text-xs text-slate-400 pt-1">
               {isDisabled
                 ? 'Your staff account has been deactivated by the store administrator.'
-                : 'Your Google identity is verified, but you are not on the authorized staff allowlist.'}
+                : 'Your Google identity is verified, but you need staff approval to access billing.'}
             </p>
           </div>
         </div>
@@ -103,8 +150,8 @@ export default function UnauthorizedPage({ business }) {
           {/* Copyable UID Box */}
           <div className="pt-2 border-t border-slate-800/80 space-y-1">
             <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span>Your Firebase Auth UID:</span>
-              <span className="text-[10px] text-slate-500">Required for administrator provisioning</span>
+              <span>Your Staff UID:</span>
+              <span className="text-[10px] text-slate-500">Firebase Security Identity</span>
             </div>
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-700/80 rounded-xl p-2">
               <code className="text-xs font-mono text-amber-400 truncate flex-1 select-all">
@@ -132,32 +179,83 @@ export default function UnauthorizedPage({ business }) {
           </div>
         </div>
 
-        {/* Administrator Contact & Setup Instructions */}
-        <div className="p-4 bg-slate-950/40 rounded-2xl border border-slate-800/80 space-y-2 text-xs text-slate-300">
-          <div className="font-semibold text-white flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-amber-400" />
-            <span>Store Administrator Instructions</span>
+        {/* Pending Request Status / Submission Card (Non-Disabled) */}
+        {!isDisabled && (
+          <div className="p-4 bg-slate-950/40 rounded-2xl border border-slate-800/80 space-y-3">
+            {pendingReq?.status === 'pending' ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-amber-400 font-bold text-xs">
+                  <Clock className="w-4 h-4 animate-spin" />
+                  <span>Access Request Pending Review</span>
+                </div>
+                <p className="text-[11.5px] text-slate-300 leading-relaxed">
+                  Your request was submitted on{' '}
+                  <span className="font-semibold text-white">
+                    {new Date(pendingReq.requestedAt).toLocaleString('en-IN')}
+                  </span>
+                  . The store administrator has been notified.
+                </p>
+                <p className="text-[10.5px] text-slate-400">
+                  Your browser will automatically grant access the moment your account is approved.
+                </p>
+              </div>
+            ) : pendingReq?.status === 'rejected' ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-red-400 font-bold text-xs">
+                  <XCircle className="w-4 h-4" />
+                  <span>Access Request Rejected</span>
+                </div>
+                <p className="text-[11.5px] text-slate-300 leading-relaxed">
+                  Reason: <span className="text-red-300 italic">{pendingReq.rejectionReason || 'No reason provided.'}</span>
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSubmitRequest}
+                  disabled={isSubmitting}
+                  className="mt-1 py-1.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 border border-slate-700 transition-colors"
+                >
+                  <Send className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{isSubmitting ? 'Submitting...' : 'Re-submit Request'}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="font-semibold text-white text-xs flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-amber-400" />
+                  <span>Request Staff Access</span>
+                </div>
+                <p className="text-[11.5px] text-slate-400 leading-relaxed">
+                  Click below to submit your Google identity directly to the{' '}
+                  <strong className="text-slate-200">{business?.businessName || 'TPS BATTERYS HOUSE'}</strong> admin queue for role assignment.
+                </p>
+                {reqError && <p className="text-[11px] text-red-400">{reqError}</p>}
+                <button
+                  type="button"
+                  onClick={handleSubmitRequest}
+                  disabled={isSubmitting}
+                  className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.98] disabled:opacity-50"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>{isSubmitting ? 'Sending Request...' : 'Submit Access Request'}</span>
+                </button>
+              </div>
+            )}
           </div>
+        )}
 
-          {isDisabled ? (
+        {/* Administrator Contact Info when Suspended */}
+        {isDisabled && (
+          <div className="p-4 bg-slate-950/40 rounded-2xl border border-slate-800/80 space-y-2 text-xs text-slate-300">
+            <div className="font-semibold text-white flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-red-400" />
+              <span>Contact Administrator</span>
+            </div>
             <p className="text-[11.5px] text-slate-400 leading-relaxed">
-              If you believe this is an error or need your account reactivated, contact the business administrator of{' '}
+              If you believe this suspension is in error or need reactivation, please contact the store administrator of{' '}
               <strong className="text-slate-200">{business?.businessName || 'TPS BATTERYS HOUSE'}</strong>.
             </p>
-          ) : (
-            <div className="space-y-1.5 text-[11.5px] text-slate-400 leading-relaxed">
-              <p>
-                To gain access, share your <strong className="text-slate-200">UID</strong> above with the administrator.
-              </p>
-              <p>
-                The administrator must create an active staff membership record in Firestore under:
-              </p>
-              <code className="block bg-slate-900 p-2 rounded-lg text-[10.5px] font-mono text-slate-300 border border-slate-800 break-all select-all">
-                businesses/tps-battery-house/members/{user?.uid}
-              </code>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center gap-3 pt-2">
@@ -166,9 +264,9 @@ export default function UnauthorizedPage({ business }) {
               type="button"
               onClick={handleRefresh}
               disabled={isRefreshing}
-              className="w-full sm:flex-1 py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-[0.98] disabled:opacity-50"
+              className="w-full sm:flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-2 border border-slate-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-amber-400' : ''}`} />
               <span>{isRefreshing ? 'Verifying...' : 'Check Status Again'}</span>
             </button>
           )}

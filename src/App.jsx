@@ -22,6 +22,7 @@ import InvoiceHistoryModal from './components/InvoiceHistoryModal';
 import BusinessSettingsModal from './components/BusinessSettingsModal';
 import ProductCatalogView from './components/ProductCatalogView';
 import CustomerManagementView from './components/CustomerManagementView';
+import StaffManagementView from './components/StaffManagementView';
 import { getSampleInvoiceData } from './utils/defaults';
 import {
   PRODUCT_CATEGORIES,
@@ -819,6 +820,11 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                   setActiveView('editor');
                 }}
               />
+            )}
+
+            {/* VIEW 6: STAFF ADMINISTRATION & RBAC */}
+            {activeView === 'staff' && (
+              <StaffManagementView business={business} />
             )}
           </main>
 
