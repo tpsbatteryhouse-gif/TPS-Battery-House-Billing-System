@@ -17,7 +17,8 @@ import {
  * multi-HSN tax summary, bank details, and terms.
  * Output size is typically 50 KB - 90 KB.
  */
-export async function generateVectorPdf(invoice, business, invoiceCopy = 'Original for Buyer') {
+export async function generateVectorPdf(invoice, businessInput, invoiceCopy = 'Original for Buyer') {
+  const business = invoice?.businessSnapshot || businessInput;
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
   const upiUri = buildUpiUri(
     business?.upiId,

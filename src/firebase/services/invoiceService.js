@@ -23,6 +23,7 @@ import { db } from '../firebase.js';
 import { DEFAULT_BUSINESS_ID } from '../../context/authConstants.js';
 import { inferTransactionType, normalizeInvoiceItem } from '../../utils/categories.js';
 import { calculateInvoiceTotals } from '../../utils/gstCalculations.js';
+import { createBusinessSnapshot, DEFAULT_BUSINESS_SETTINGS } from './businessSettingsService.js';
 
 // Pre-calculated set of allowed keys matching firestore.rules
 const ALLOWED_INVOICE_KEYS = new Set([
@@ -51,6 +52,7 @@ const ALLOWED_INVOICE_KEYS = new Set([
   'updatedAt',
   'updatedBy',
   'financialYear',
+  'businessSnapshot',
 ]);
 
 const VALID_STATUSES = new Set(['Draft', 'Pending', 'Paid', 'Overdue', 'Cancelled']);
@@ -212,6 +214,10 @@ export function sanitizeInvoiceForFirestore(rawInvoice, user = null, isUpdate = 
     sanitized.roundOffManual = Number(rawInvoice.roundOffManual);
   }
 
+  if (rawInvoice.businessSnapshot && typeof rawInvoice.businessSnapshot === 'object') {
+    sanitized.businessSnapshot = rawInvoice.businessSnapshot;
+  }
+
   // Audit metadata
   const userUid = user?.uid || (typeof user === 'string' ? user : null);
 
@@ -271,9 +277,9 @@ export async function getInvoices(businessId = DEFAULT_BUSINESS_ID) {
 /**
  * Fetch a single invoice by ID
  */
-export async function getInvoiceById(businessId = DEFAULT_BUSINESS_ID, invoiceId) {
+export async function getInvoiceById(businessId = DEFAULT_BUSINESS_ID, invoiceId, dbInstance = db) {
   try {
-    const docRef = doc(db, 'businesses', businessId, 'invoices', invoiceId);
+    const docRef = doc(dbInstance, 'businesses', businessId, 'invoices', invoiceId);
     const snap = await getDoc(docRef);
     if (!snap.exists()) {
       return null;
@@ -287,6 +293,8 @@ export async function getInvoiceById(businessId = DEFAULT_BUSINESS_ID, invoiceId
     throw error;
   }
 }
+
+export { getInvoiceById as getInvoice };
 
 /**
  * Subscribe to invoices collection with realtime onSnapshot
@@ -332,13 +340,14 @@ export async function createInvoiceWithCounter(
   user = null,
   options = { prefix: 'TPS' }
 ) {
+  const firestoreDb = options?.dbInstance || db;
   const invoiceDate = invoiceData.invoiceDate || new Date().toISOString().split('T')[0];
   const fy = getFinancialYear(invoiceDate);
   const prefix = getInvoicePrefix(options.prefix || 'TPS', invoiceDate);
 
   const counterId = `invoices_${fy}`;
-  const counterRef = doc(db, 'businesses', businessId, 'counters', counterId);
-  const legacyCounterRef = doc(db, 'businesses', businessId, 'counters', 'invoices');
+  const counterRef = doc(firestoreDb, 'businesses', businessId, 'counters', counterId);
+  const legacyCounterRef = doc(firestoreDb, 'businesses', businessId, 'counters', 'invoices');
 
   const isDraft = invoiceData.paymentStatus === 'Draft';
   const hasExistingPermanentNum = invoiceData.invoiceNumber &&
@@ -353,13 +362,17 @@ export async function createInvoiceWithCounter(
       : `DRAFT-${Date.now().toString().slice(-6)}`;
 
     const invoiceId = invoiceData.id || `inv_draft_${Date.now()}`;
-    const invoiceDocRef = doc(db, 'businesses', businessId, 'invoices', invoiceId);
+    const invoiceDocRef = doc(firestoreDb, 'businesses', businessId, 'invoices', invoiceId);
+
+    const snapshot = invoiceData.businessSnapshot ||
+      (options?.business ? createBusinessSnapshot(options.business) : createBusinessSnapshot(DEFAULT_BUSINESS_SETTINGS));
 
     const sanitized = sanitizeInvoiceForFirestore(
       {
         ...invoiceData,
         id: invoiceId,
         invoiceNumber: draftNumber,
+        businessSnapshot: snapshot,
       },
       user,
       false
@@ -374,7 +387,7 @@ export async function createInvoiceWithCounter(
   const maxAttempts = 3;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      return await runTransaction(db, async (transaction) => {
+      return await runTransaction(firestoreDb, async (transaction) => {
         const counterSnap = await transaction.get(counterRef);
         let nextSeq = 1;
 
@@ -414,7 +427,10 @@ export async function createInvoiceWithCounter(
         }
 
         const invoiceId = invoiceData.id || `inv_${Date.now()}_${String(nextSeq).padStart(3, '0')}`;
-        const invoiceDocRef = doc(db, 'businesses', businessId, 'invoices', invoiceId);
+        const invoiceDocRef = doc(firestoreDb, 'businesses', businessId, 'invoices', invoiceId);
+
+        const snapshot = invoiceData.businessSnapshot ||
+          (options?.business ? createBusinessSnapshot(options.business) : createBusinessSnapshot(DEFAULT_BUSINESS_SETTINGS));
 
         // Sanitize payload strictly according to firestore.rules
         const sanitized = sanitizeInvoiceForFirestore(
@@ -423,6 +439,7 @@ export async function createInvoiceWithCounter(
             id: invoiceId,
             invoiceNumber: finalInvNumber,
             financialYear: fy,
+            businessSnapshot: snapshot,
           },
           user,
           false
@@ -430,7 +447,7 @@ export async function createInvoiceWithCounter(
 
         // Uniqueness reservation reference and check
         const safeNum = finalInvNumber.replace(/\//g, '_');
-        const reservationRef = doc(db, 'businesses', businessId, 'invoice_numbers', safeNum);
+        const reservationRef = doc(firestoreDb, 'businesses', businessId, 'invoice_numbers', safeNum);
         const reservationSnap = await transaction.get(reservationRef);
         if (reservationSnap.exists()) {
           throw new Error(`Invoice number "${finalInvNumber}" is already in use and cannot be duplicated.`);
@@ -477,8 +494,9 @@ export async function createInvoiceWithCounter(
 export async function createInvoice(businessId = DEFAULT_BUSINESS_ID, invoiceData, user = null) {
   try {
     const invoiceId = invoiceData.id || `inv_${Date.now()}`;
+    const snapshot = invoiceData.businessSnapshot || createBusinessSnapshot(DEFAULT_BUSINESS_SETTINGS);
     const sanitized = sanitizeInvoiceForFirestore(
-      { ...invoiceData, id: invoiceId },
+      { ...invoiceData, id: invoiceId, businessSnapshot: snapshot },
       user,
       false
     );
@@ -499,11 +517,25 @@ export async function updateInvoice(
   businessId = DEFAULT_BUSINESS_ID,
   invoiceId,
   updateData,
-  user = null
+  user = null,
+  dbInstance = db
 ) {
   try {
     if (!invoiceId) {
       throw new Error('invoiceId is required for update.');
+    }
+
+    // Enforce businessSnapshot immutability at service layer
+    if (updateData && 'businessSnapshot' in updateData) {
+      const docRef = doc(dbInstance, 'businesses', businessId, 'invoices', invoiceId);
+      const snap = await getDoc(docRef);
+      if (snap.exists() && snap.data().businessSnapshot) {
+        const existingSnapshot = snap.data().businessSnapshot;
+        const incomingSnapshot = updateData.businessSnapshot;
+        if (JSON.stringify(existingSnapshot) !== JSON.stringify(incomingSnapshot)) {
+          throw new Error('Historical businessSnapshot on an invoice is immutable and cannot be modified.');
+        }
+      }
     }
 
     const sanitized = sanitizeInvoiceForFirestore(
@@ -512,7 +544,7 @@ export async function updateInvoice(
       true
     );
 
-    const docRef = doc(db, 'businesses', businessId, 'invoices', invoiceId);
+    const docRef = doc(dbInstance, 'businesses', businessId, 'invoices', invoiceId);
     await updateDoc(docRef, sanitized);
     return sanitized;
   } catch (error) {

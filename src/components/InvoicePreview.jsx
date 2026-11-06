@@ -21,7 +21,8 @@ import UpiQrCode from './UpiQrCode';
  * 6. Amount in Words + Statutory HSN Tax Computation Table (Left) & Totals / Bank Details (Right)
  * 7. Bordered Bottom Grid: Terms & Conditions + Operator Stamp (Left), UPI Scan to Pay QR (Middle), Authorized Signatory (Right)
  */
-export default function InvoicePreview({ invoice, business, invoiceCopy = 'Original for Buyer' }) {
+export default function InvoicePreview({ invoice, business: propBusiness, invoiceCopy = 'Original for Buyer' }) {
+  const business = invoice?.businessSnapshot || propBusiness;
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
   const upiUri = buildUpiUri(business?.upiId, business?.businessName, totals.netPayable, invoice.invoiceNumber);
 

@@ -22,7 +22,7 @@ import InvoiceHistoryModal from './components/InvoiceHistoryModal';
 import BusinessSettingsModal from './components/BusinessSettingsModal';
 import ProductCatalogView from './components/ProductCatalogView';
 import CustomerManagementView from './components/CustomerManagementView';
-import { DEFAULT_BUSINESS, getSampleInvoiceData } from './utils/defaults';
+import { getSampleInvoiceData } from './utils/defaults';
 import {
   PRODUCT_CATEGORIES,
   CATEGORY_CONFIG,
@@ -39,9 +39,10 @@ import { DEFAULT_BUSINESS_ID } from './context/authConstants';
 import { useProductCatalog } from './hooks/useProductCatalog';
 import { useCustomers } from './hooks/useCustomers';
 import { useInvoices } from './hooks/useInvoices';
+import { useBusinessSettings } from './hooks/useBusinessSettings';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
-function AppContent({ business, setBusiness }) {
+function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyncStatus }) {
   const { permissions, signOutUser } = useAuth();
   // Navigation View: 'dashboard' | 'invoices' | 'editor'
   const [activeView, setActiveView] = useState('dashboard');
@@ -886,6 +887,8 @@ function AppContent({ business, setBusiness }) {
             onClose={() => setIsSettingsOpen(false)}
             business={business}
             setBusiness={setBusiness}
+            onSave={onSaveBusinessSettings}
+            syncStatus={settingsSyncStatus}
           />
 
           {/* Invoice History Drawer */}
@@ -901,21 +904,30 @@ function AppContent({ business, setBusiness }) {
   );
 }
 
-export default function App() {
-  const [business, setBusiness] = useState(() => {
-    try {
-      const saved = localStorage.getItem('tps_business_profile');
-      return saved ? JSON.parse(saved) : DEFAULT_BUSINESS;
-    } catch {
-      return DEFAULT_BUSINESS;
-    }
-  });
+function AppWithSettings() {
+  const {
+    settings: business,
+    setSettings: setBusiness,
+    updateSettings,
+    syncStatus: settingsSyncStatus,
+  } = useBusinessSettings(DEFAULT_BUSINESS_ID);
 
   return (
+    <ProtectedRoute business={business}>
+      <AppContent
+        business={business}
+        setBusiness={setBusiness}
+        onSaveBusinessSettings={updateSettings}
+        settingsSyncStatus={settingsSyncStatus}
+      />
+    </ProtectedRoute>
+  );
+}
+
+export default function App() {
+  return (
     <AuthProvider>
-      <ProtectedRoute business={business}>
-        <AppContent business={business} setBusiness={setBusiness} />
-      </ProtectedRoute>
+      <AppWithSettings />
     </AuthProvider>
   );
 }

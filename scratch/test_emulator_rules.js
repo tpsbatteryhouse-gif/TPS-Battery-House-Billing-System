@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, getDocs, collection, runTransaction } from 'firebase/firestore';
+import { sanitizeInvoiceForFirestore } from '../src/firebase/services/invoiceService.js';
 
 const EMULATOR_HOST = '127.0.0.1';
 const EMULATOR_PORT = 8980;
@@ -37,6 +38,8 @@ async function runEmulatorTestSuite() {
       rules: rulesContent,
     },
   });
+
+  await testEnv.clearFirestore();
 
   try {
     // -------------------------------------------------------------
@@ -242,6 +245,7 @@ async function runEmulatorTestSuite() {
     // Cashier creating valid invoice atomically with counter update
     await checkPass(assertSucceeds(runTransaction(cashierDb, async (txn) => {
       const counterRef = doc(cashierDb, 'businesses', BIZ_ID, 'counters', 'invoices_2026-27');
+      await txn.get(counterRef);
       txn.update(counterRef, {
         lastSeq: 50,
         prefix: 'TPS/2026-27/',
@@ -257,7 +261,7 @@ async function runEmulatorTestSuite() {
         createdAt: new Date().toISOString(),
         createdBy: 'cashier_1',
       });
-      txn.set(doc(cashierDb, 'businesses', BIZ_ID, 'invoices', 'inv_cashier_01'), {
+      const validPayload = sanitizeInvoiceForFirestore({
         id: 'inv_cashier_01',
         invoiceNumber: 'TPS/2026-27/050',
         financialYear: '2026-27',
@@ -266,10 +270,11 @@ async function runEmulatorTestSuite() {
         paymentStatus: 'Paid',
         paymentMode: 'Cash',
         customer: { name: 'Counter Customer' },
-        items: [{ id: 'item-c1', name: 'Tall Tubular Battery', qty: 1 }],
+        items: [{ id: 'item-c1', name: 'Tall Tubular Battery', qty: 1, sellingPrice: 14800, gstRate: 28, isTaxInclusive: true }],
         netPayable: 14800,
         createdAt: new Date().toISOString(),
-      });
+      }, { uid: 'cashier_1' });
+      txn.set(doc(cashierDb, 'businesses', BIZ_ID, 'invoices', 'inv_cashier_01'), validPayload);
     })), 'Cashier CAN create valid customer invoice');
 
     // Cashier CANNOT update or delete

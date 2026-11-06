@@ -346,7 +346,7 @@ assert(rules.includes("request.resource.data.netPayable == resource.data.netPaya
 assert(rules.includes("request.resource.data.items == resource.data.items"), 'Manager finalization locks items array');
 assert(rules.includes("allow delete: if isAdmin(businessId);"), 'Invoices allow delete: if isAdmin ONLY');
 assert(rules.includes("allow create: if (isAdmin(businessId) || isManager(businessId))"), 'Product create: if isAdmin || isManager');
-assert(rules.includes("allow create: if isAdmin(businessId) &&\n                         isValidSetting"), 'Settings create: if isAdmin ONLY');
+assert(rules.includes("allow create: if isAdmin(businessId) &&") && rules.includes("isValidBusinessSettings"), 'Settings create: if isAdmin ONLY');
 assert(rules.includes("request.auth.uid != uid"), 'Anti-self promotion enforced');
 
 console.log('\n================================================================');

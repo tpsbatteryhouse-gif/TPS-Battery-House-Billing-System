@@ -131,17 +131,10 @@ service cloud.firestore {
 
     // Invoice Document Validator: called on create and update
     function isValidInvoice(data, invoiceId) {
-      return data.keys().hasAll([
+      return data.size() <= 30 &&
+        data.keys().hasAll([
           'id', 'invoiceNumber', 'invoiceDate', 'dueDate',
           'paymentStatus', 'paymentMode', 'customer', 'items', 'netPayable'
-        ]) &&
-        data.keys().hasOnly([
-          'id', 'invoiceNumber', 'transactionType', 'invoiceDate', 'dueDate',
-          'paymentStatus', 'paymentMode', 'placeOfSupply', 'reverseCharge',
-          'poNumber', 'ewayBillNo', 'irn',
-          'customer', 'items', 'scrapExchange', 'additionalDiscount',
-          'roundOffManual', 'netPayable', 'notes', 'createdAt', 'savedAt',
-          'createdBy', 'updatedAt', 'updatedBy', 'financialYear'
         ]) &&
         data.id is string &&
         data.id == invoiceId &&
@@ -194,6 +187,7 @@ service cloud.firestore {
         isValidOptionalString(data, 'createdBy', 1, 128) &&
         isValidOptionalString(data, 'updatedBy', 1, 128) &&
         (!('financialYear' in data) || (data.financialYear is string && data.financialYear.matches('^[0-9]{4}-[0-9]{2}$'))) &&
+        (!('businessSnapshot' in data) || data.businessSnapshot is map) &&
         (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
     }
 
@@ -202,7 +196,22 @@ service cloud.firestore {
       return request.resource.data.id == resource.data.id &&
         request.resource.data.invoiceNumber == resource.data.invoiceNumber &&
         (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
-        (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy);
+        (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy) &&
+        (!('businessSnapshot' in resource.data) ||
+         (('businessSnapshot' in request.resource.data) &&
+          request.resource.data.businessSnapshot.businessName == resource.data.businessSnapshot.businessName &&
+          request.resource.data.businessSnapshot.address == resource.data.businessSnapshot.address &&
+          request.resource.data.businessSnapshot.gstin == resource.data.businessSnapshot.gstin &&
+          request.resource.data.businessSnapshot.phone == resource.data.businessSnapshot.phone &&
+          request.resource.data.businessSnapshot.email == resource.data.businessSnapshot.email &&
+          request.resource.data.businessSnapshot.bankName == resource.data.businessSnapshot.bankName &&
+          request.resource.data.businessSnapshot.accountNo == resource.data.businessSnapshot.accountNo &&
+          request.resource.data.businessSnapshot.ifsc == resource.data.businessSnapshot.ifsc &&
+          request.resource.data.businessSnapshot.upiId == resource.data.businessSnapshot.upiId &&
+          (!('terms' in resource.data.businessSnapshot) || request.resource.data.businessSnapshot.terms.size() == resource.data.businessSnapshot.terms.size()) &&
+          request.resource.data.businessSnapshot.footerText == resource.data.businessSnapshot.footerText &&
+          request.resource.data.businessSnapshot.authorizedSignatory == resource.data.businessSnapshot.authorizedSignatory &&
+          (!('city' in resource.data.businessSnapshot) || request.resource.data.businessSnapshot.city == resource.data.businessSnapshot.city)));
     }
 
     // Product Document Validator: called on create and update
@@ -308,6 +317,70 @@ service cloud.firestore {
         settingId.size() >= 1 &&
         settingId.size() <= 64 &&
         data.size() <= 50;
+    }
+
+    // Business Profile Settings Validator (Phase 3)
+    function isValidBusinessSettings(data, settingId) {
+      return settingId == 'business_profile' &&
+        data.size() <= 45 &&
+        data.keys().hasAll(['businessName', 'stateCode']) &&
+        data.keys().hasOnly([
+          'businessName', 'legalName', 'businessType', 'address', 'addressLine1', 'roadStreet',
+          'city', 'district', 'cityDistrict', 'state', 'stateCode', 'pincode', 'pinCode',
+          'gstin', 'pan', 'phone', 'alternatePhone', 'altPhone', 'email', 'website',
+          'logoUrl', 'tagline', 'bank', 'bankName', 'accountNo', 'accountName', 'branch',
+          'ifsc', 'upi', 'upiId', 'invoiceSettings', 'terms', 'invoicePrefix', 'config',
+          'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+        ]) &&
+        data.businessName is string &&
+        data.businessName.size() >= 1 &&
+        data.businessName.size() <= 150 &&
+        data.stateCode is string &&
+        data.stateCode.size() >= 1 &&
+        data.stateCode.size() <= 10 &&
+        isValidOptionalString(data, 'gstin', 0, 25) &&
+        isValidOptionalString(data, 'pan', 0, 20) &&
+        isValidOptionalString(data, 'phone', 0, 25) &&
+        isValidOptionalString(data, 'email', 0, 100) &&
+        isValidOptionalString(data, 'createdBy', 1, 128) &&
+        isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        (!('bank' in data) || (data.bank is map && data.bank.size() <= 15)) &&
+        (!('upi' in data) || (data.upi is map && data.upi.size() <= 10)) &&
+        (!('invoiceSettings' in data) || (data.invoiceSettings is map && data.invoiceSettings.size() <= 15)) &&
+        (!('terms' in data) || (data.terms is list && data.terms.size() <= 25)) &&
+        (!('config' in data) || (data.config is map && data.config.size() <= 10)) &&
+        (!('createdAt' in data) || (data.createdAt is string || data.createdAt is timestamp)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
+    }
+
+    // Restricted Financial Details Validator (/settings/financial_details)
+    // Strictly accessible only to administrators
+    function isValidFinancialDetails(data, settingId) {
+      return settingId == 'financial_details' &&
+        data.size() <= 20 &&
+        data.keys().hasAll(['bankName', 'ifsc']) &&
+        data.keys().hasOnly([
+          'bankName', 'accountHolder', 'accountName', 'accountNumber', 'accountNo',
+          'ifsc', 'branch', 'accountType', 'enabled',
+          'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+        ]) &&
+        data.bankName is string &&
+        data.bankName.size() >= 1 &&
+        data.bankName.size() <= 100 &&
+        data.ifsc is string &&
+        data.ifsc.size() >= 4 &&
+        data.ifsc.size() <= 20 &&
+        isValidOptionalString(data, 'accountNumber', 1, 50) &&
+        isValidOptionalString(data, 'accountNo', 1, 50) &&
+        isValidOptionalString(data, 'accountHolder', 1, 150) &&
+        isValidOptionalString(data, 'accountName', 1, 150) &&
+        isValidOptionalString(data, 'branch', 1, 100) &&
+        isValidOptionalString(data, 'accountType', 1, 50) &&
+        (!('enabled' in data) || data.enabled is bool) &&
+        (!('createdAt' in data) || (data.createdAt is string || data.createdAt is timestamp)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp)) &&
+        isValidOptionalString(data, 'createdBy', 1, 128) &&
+        isValidOptionalString(data, 'updatedBy', 1, 128);
     }
 
     // Business Root Document Validator
@@ -431,6 +504,14 @@ service cloud.firestore {
         // 3. Permanent normal billing invoices (Admin, Manager, Cashier) must be atomically linked
         //    to a matching counter increment and a uniqueness reservation in the same transaction.
         allow create: if isActiveMember(businessId) &&
+                         request.resource.data.keys().hasOnly([
+                           'id', 'invoiceNumber', 'transactionType', 'invoiceDate', 'dueDate',
+                           'paymentStatus', 'paymentMode', 'placeOfSupply', 'reverseCharge',
+                           'poNumber', 'ewayBillNo', 'irn',
+                           'customer', 'items', 'scrapExchange', 'additionalDiscount',
+                           'roundOffManual', 'netPayable', 'notes', 'createdAt', 'savedAt',
+                           'createdBy', 'updatedAt', 'updatedBy', 'financialYear', 'businessSnapshot'
+                         ]) &&
                          isValidInvoice(request.resource.data, invoiceId) &&
                          (
                            // Draft invoices are exempt from counter and uniqueness reservations
@@ -455,17 +536,17 @@ service cloud.firestore {
                            (
                              ('financialYear' in request.resource.data &&
                               isValidFinancialYearForDate(request.resource.data.invoiceDate, request.resource.data.financialYear) &&
-                              exists(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear ))) &&
+                              exists(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear))) &&
                              (
                                !exists(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status) ||
                                get(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status).data.status != 'in_progress'
                              ) &&
                              (
-                               existsAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear )) &&
-                               ('lastInvoiceId' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear )).data &&
-                                getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear )).data.lastInvoiceId == invoiceId) &&
-                               ('lastInvoiceNumber' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear )).data &&
-                                getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$( 'invoices_' + request.resource.data.financialYear )).data.lastInvoiceNumber == request.resource.data.invoiceNumber)
+                               existsAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)) &&
+                               ('lastInvoiceId' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data) &&
+                               (getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data.lastInvoiceId == invoiceId) &&
+                               ('lastInvoiceNumber' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data) &&
+                               (getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data.lastInvoiceNumber == request.resource.data.invoiceNumber)
                              ) &&
                              existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoice_numbers/$(getReservationDocId(request.resource.data.invoiceNumber)))
                            )
@@ -480,12 +561,12 @@ service cloud.firestore {
         // - Cashier: STRICTLY DENIED from updating any invoice.
         // - In all cases, immutable fields (id, invoiceNumber, createdAt, createdBy) cannot change.
         allow update: if isActiveMember(businessId) &&
+                         (getMemberDoc(businessId).data.role in ['admin', 'manager']) &&
                          isValidInvoice(request.resource.data, invoiceId) &&
                          areImmutableInvoiceFieldsUnchanged() &&
                          (
-                           isAdmin(businessId) ||
+                           getMemberDoc(businessId).data.role == 'admin' ||
                            (
-                             isManager(businessId) &&
                              !(resource.data.paymentStatus in ['Paid', 'Cancelled']) &&
                              (
                                resource.data.paymentStatus != 'Pending' ||
@@ -546,16 +627,31 @@ service cloud.firestore {
       // 5. Store Settings Collection: /settings/{settingId}
       // -------------------------------------------------------------
       match /settings/{settingId} {
-        // Active members can read store settings and print configurations
-        allow read: if isActiveMember(businessId);
+        // Restricted financial settings: ONLY administrators can read and list
+        // General settings (business_profile, print_config, etc.): readable by active staff
+        allow read: if settingId == 'financial_details'
+                      ? isAdmin(businessId)
+                      : isActiveMember(businessId);
 
-        // Only administrators can modify business & printer configuration
-        // Managers and Cashiers are strictly denied from modifying settings
+        // Only administrators can create or modify settings
+        // Managers and Cashiers are strictly denied from creating or modifying settings
         allow create: if isAdmin(businessId) &&
-                         isValidSetting(request.resource.data, settingId);
+                         (settingId == 'business_profile'
+                           ? isValidBusinessSettings(request.resource.data, settingId)
+                           : settingId == 'financial_details'
+                             ? isValidFinancialDetails(request.resource.data, settingId)
+                             : isValidSetting(request.resource.data, settingId));
 
         allow update: if isAdmin(businessId) &&
-                         isValidSetting(request.resource.data, settingId);
+                         (settingId == 'business_profile'
+                           ? (isValidBusinessSettings(request.resource.data, settingId) &&
+                              (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+                              (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy))
+                           : settingId == 'financial_details'
+                             ? (isValidFinancialDetails(request.resource.data, settingId) &&
+                                (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+                                (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy))
+                             : isValidSetting(request.resource.data, settingId));
 
         allow delete: if isAdmin(businessId);
       }
