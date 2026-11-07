@@ -12,15 +12,35 @@ import {
   getDoc,
   getDocs,
   setDoc,
-  updateDoc,
   query,
   where,
   orderBy,
   limit,
+  runTransaction,
 } from 'firebase/firestore';
 import { db } from '../firebase.js';
 import { DEFAULT_BUSINESS_ID } from '../../context/authConstants.js';
 import { ROLES, ACCOUNT_STATUS } from '../../utils/permissions.js';
+
+import {
+  executeRoleChangeTransaction,
+  executeStatusChangeTransaction,
+  executeStaffApprovalTransaction,
+  executeStaffRejectionTransaction,
+  executeStaffUidMigrationTransaction,
+  getPrimaryAdminConfig,
+  revokeStaffSession,
+} from './trustedStaffBackend.js';
+
+export {
+  executeRoleChangeTransaction,
+  executeStatusChangeTransaction,
+  executeStaffApprovalTransaction,
+  executeStaffRejectionTransaction,
+  executeStaffUidMigrationTransaction,
+  getPrimaryAdminConfig,
+  revokeStaffSession,
+};
 
 /**
  * Normalizes email address for consistency
@@ -229,6 +249,7 @@ export async function recordStaffAuditLog(
 
 /**
  * Approves a pending staff registration and provisions their active membership
+ * Committed atomically alongside its audit record via trusted backend transaction.
  */
 export async function approveStaffMember(
   businessId = DEFAULT_BUSINESS_ID,
@@ -237,71 +258,18 @@ export async function approveStaffMember(
   adminUser,
   dbInstance = db
 ) {
-  if (!uid) throw new Error('Target User ID is required');
-  if (!isValidRole(role)) throw new Error(`Invalid role: ${role}`);
-  if (!adminUser || !adminUser.uid) throw new Error('Administrator identity is required');
-
-  if (uid === adminUser.uid) {
-    throw new Error('Administrators cannot approve their own registration.');
-  }
-
-  // Retrieve pending registration details
-  const regRef = doc(dbInstance, 'businesses', businessId, 'pending_registrations', uid);
-  const regSnap = await getDoc(regRef);
-  if (!regSnap.exists()) {
-    throw new Error(`Pending registration not found for UID: ${uid}`);
-  }
-
-  const regData = regSnap.data();
-  const now = new Date().toISOString();
-
-  // Create member record in /members/{uid}
-  const memberRef = doc(dbInstance, 'businesses', businessId, 'members', uid);
-  const memberPayload = {
-    uid,
-    email: normalizeEmail(regData.email),
-    displayName: regData.displayName || 'Staff Member',
-    role,
-    status: ACCOUNT_STATUS.ACTIVE,
-    createdAt: now,
-    createdBy: adminUser.uid,
-    updatedAt: now,
-    updatedBy: adminUser.uid,
-  };
-
-  await setDoc(memberRef, memberPayload);
-
-  // Update pending registration document
-  await updateDoc(regRef, {
-    status: 'approved',
-    assignedRole: role,
-    reviewedBy: adminUser.uid,
-    reviewedAt: now,
-  });
-
-  // Record audit log
-  await recordStaffAuditLog(
+  return executeStaffApprovalTransaction(dbInstance, {
     businessId,
-    {
-      targetUid: uid,
-      targetEmail: regData.email,
-      targetName: regData.displayName,
-      action: 'STAFF_APPROVED',
-      previousValue: null,
-      newValue: { role, status: ACCOUNT_STATUS.ACTIVE },
-      actorUid: adminUser.uid,
-      actorEmail: adminUser.email,
-      notes: `Staff member approved and assigned role: ${role}`,
-    },
-    dbInstance
-  );
-
-  return memberPayload;
+    targetUid: uid,
+    role,
+    actorUser: adminUser,
+  });
 }
 
 /**
  * Directly registers a staff member without requiring a prior pending registration
  * (Used when Administrator manually adds a team member by UID/email)
+ * Committed atomically alongside its audit log.
  */
 export async function registerStaffMemberDirectly(
   businessId = DEFAULT_BUSINESS_ID,
@@ -321,6 +289,8 @@ export async function registerStaffMemberDirectly(
 
   const now = new Date().toISOString();
   const memberRef = doc(dbInstance, 'businesses', businessId, 'members', uid);
+  const logId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const logRef = doc(dbInstance, 'businesses', businessId, 'staff_audit_logs', logId);
 
   const payload = {
     uid,
@@ -334,29 +304,31 @@ export async function registerStaffMemberDirectly(
     updatedBy: adminUser.uid,
   };
 
-  await setDoc(memberRef, payload);
-
-  await recordStaffAuditLog(
+  const auditPayload = {
+    id: logId,
+    targetUid: uid,
+    targetEmail: normalizeEmail(email),
+    targetName: payload.displayName,
+    action: 'STAFF_APPROVED',
+    previousValue: null,
+    newValue: { role, status: ACCOUNT_STATUS.ACTIVE },
+    actorUid: adminUser.uid,
+    actorEmail: normalizeEmail(adminUser.email),
+    timestamp: now,
     businessId,
-    {
-      targetUid: uid,
-      targetEmail: email,
-      targetName: payload.displayName,
-      action: 'STAFF_APPROVED',
-      previousValue: null,
-      newValue: { role, status: ACCOUNT_STATUS.ACTIVE },
-      actorUid: adminUser.uid,
-      actorEmail: adminUser.email,
-      notes: `Direct staff member registration by administrator as ${role}`,
-    },
-    dbInstance
-  );
+    notes: `Direct staff member registration by administrator as ${role}`,
+  };
+
+  await runTransaction(dbInstance, async (transaction) => {
+    transaction.set(memberRef, payload);
+    transaction.set(logRef, auditPayload);
+  });
 
   return payload;
 }
 
 /**
- * Rejects a pending staff registration
+ * Rejects a pending staff registration atomically on the backend
  */
 export async function rejectStaffRegistration(
   businessId = DEFAULT_BUSINESS_ID,
@@ -365,50 +337,17 @@ export async function rejectStaffRegistration(
   adminUser,
   dbInstance = db
 ) {
-  if (!uid) throw new Error('Target User ID is required');
-  if (!adminUser || !adminUser.uid) throw new Error('Administrator identity is required');
-
-  if (uid === adminUser.uid) {
-    throw new Error('Administrators cannot reject their own registration.');
-  }
-
-  const regRef = doc(dbInstance, 'businesses', businessId, 'pending_registrations', uid);
-  const regSnap = await getDoc(regRef);
-  if (!regSnap.exists()) {
-    throw new Error(`Pending registration not found for UID: ${uid}`);
-  }
-
-  const regData = regSnap.data();
-  const now = new Date().toISOString();
-
-  await updateDoc(regRef, {
-    status: 'rejected',
-    rejectionReason: rejectionReason || 'Access request rejected by administrator.',
-    reviewedBy: adminUser.uid,
-    reviewedAt: now,
-  });
-
-  await recordStaffAuditLog(
+  return executeStaffRejectionTransaction(dbInstance, {
     businessId,
-    {
-      targetUid: uid,
-      targetEmail: regData.email,
-      targetName: regData.displayName,
-      action: 'STAFF_REJECTED',
-      previousValue: { status: regData.status },
-      newValue: { status: 'rejected' },
-      actorUid: adminUser.uid,
-      actorEmail: adminUser.email,
-      notes: rejectionReason || 'Access request rejected by administrator.',
-    },
-    dbInstance
-  );
-
-  return { success: true };
+    targetUid: uid,
+    rejectionReason,
+    actorUser: adminUser,
+  });
 }
 
 /**
  * Updates staff member role with self-promotion and last-admin safeguards
+ * Executed via trusted transactional backend with optimistic concurrency control.
  */
 export async function updateStaffRole(
   businessId = DEFAULT_BUSINESS_ID,
@@ -417,71 +356,17 @@ export async function updateStaffRole(
   adminUser,
   dbInstance = db
 ) {
-  if (!uid) throw new Error('Target User ID is required');
-  if (!isValidRole(newRole)) throw new Error(`Invalid role: ${newRole}`);
-  if (!adminUser || !adminUser.uid) throw new Error('Administrator identity is required');
-
-  // Anti-Self Modification Safeguard
-  if (uid === adminUser.uid) {
-    throw new Error('Administrators cannot modify their own role. Please ask another administrator.');
-  }
-
-  const memberRef = doc(dbInstance, 'businesses', businessId, 'members', uid);
-  const memberSnap = await getDoc(memberRef);
-  if (!memberSnap.exists()) {
-    throw new Error(`Staff member not found for UID: ${uid}`);
-  }
-
-  const currentData = memberSnap.data();
-  const oldRole = currentData.role;
-
-  if (oldRole === newRole) {
-    return currentData; // No change
-  }
-
-  // Last-Admin Protection: Prevent demoting the only active administrator
-  if (oldRole === ROLES.ADMIN && newRole !== ROLES.ADMIN) {
-    const activeAdminCount = await countActiveAdmins(businessId, dbInstance);
-    if (activeAdminCount <= 1) {
-      throw new Error(
-        'Cannot demote the last remaining active Administrator. Please designate another Administrator first.'
-      );
-    }
-  }
-
-  const now = new Date().toISOString();
-  await updateDoc(memberRef, {
-    role: newRole,
-    updatedAt: now,
-    updatedBy: adminUser.uid,
-  });
-
-  await recordStaffAuditLog(
+  return executeRoleChangeTransaction(dbInstance, {
     businessId,
-    {
-      targetUid: uid,
-      targetEmail: currentData.email,
-      targetName: currentData.displayName,
-      action: 'ROLE_CHANGED',
-      previousValue: { role: oldRole },
-      newValue: { role: newRole },
-      actorUid: adminUser.uid,
-      actorEmail: adminUser.email,
-      notes: `Changed role from ${oldRole} to ${newRole}`,
-    },
-    dbInstance
-  );
-
-  return {
-    ...currentData,
-    role: newRole,
-    updatedAt: now,
-    updatedBy: adminUser.uid,
-  };
+    targetUid: uid,
+    newRole,
+    actorUser: adminUser,
+  });
 }
 
 /**
  * Updates staff account status (active / disabled) with self-lockout and last-admin safeguards
+ * Executed via trusted transactional backend with optimistic concurrency control.
  */
 export async function updateStaffStatus(
   businessId = DEFAULT_BUSINESS_ID,
@@ -490,67 +375,22 @@ export async function updateStaffStatus(
   adminUser,
   dbInstance = db
 ) {
-  if (!uid) throw new Error('Target User ID is required');
-  if (!isValidAccountStatus(newStatus)) throw new Error(`Invalid account status: ${newStatus}`);
-  if (!adminUser || !adminUser.uid) throw new Error('Administrator identity is required');
+  const result = await executeStatusChangeTransaction(dbInstance, {
+    businessId,
+    targetUid: uid,
+    newStatus,
+    actorUser: adminUser,
+  });
 
-  // Anti-Self Lockout Safeguard
-  if (uid === adminUser.uid) {
-    throw new Error('Administrators cannot disable or change their own account status.');
-  }
-
-  const memberRef = doc(dbInstance, 'businesses', businessId, 'members', uid);
-  const memberSnap = await getDoc(memberRef);
-  if (!memberSnap.exists()) {
-    throw new Error(`Staff member not found for UID: ${uid}`);
-  }
-
-  const currentData = memberSnap.data();
-  const oldStatus = currentData.status;
-
-  if (oldStatus === newStatus) {
-    return currentData; // No change
-  }
-
-  // Last-Admin Protection: Prevent disabling the only active administrator
-  if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.DISABLED) {
-    const activeAdminCount = await countActiveAdmins(businessId, dbInstance);
-    if (activeAdminCount <= 1) {
-      throw new Error(
-        'Cannot disable the last remaining active Administrator. Please designate another Administrator first.'
-      );
+  if (newStatus === ACCOUNT_STATUS.DISABLED) {
+    try {
+      await revokeStaffSession(null, uid);
+    } catch (revokeErr) {
+      console.warn('[StaffService] revokeStaffSession notice:', revokeErr?.message);
     }
   }
 
-  const now = new Date().toISOString();
-  await updateDoc(memberRef, {
-    status: newStatus,
-    updatedAt: now,
-    updatedBy: adminUser.uid,
-  });
-
-  await recordStaffAuditLog(
-    businessId,
-    {
-      targetUid: uid,
-      targetEmail: currentData.email,
-      targetName: currentData.displayName,
-      action: 'STATUS_CHANGED',
-      previousValue: { status: oldStatus },
-      newValue: { status: newStatus },
-      actorUid: adminUser.uid,
-      actorEmail: adminUser.email,
-      notes: `Account status updated from ${oldStatus} to ${newStatus}`,
-    },
-    dbInstance
-  );
-
-  return {
-    ...currentData,
-    status: newStatus,
-    updatedAt: now,
-    updatedBy: adminUser.uid,
-  };
+  return result;
 }
 
 /**
@@ -596,4 +436,26 @@ export async function listStaffAuditLogs(
       throw fallbackError;
     }
   }
+}
+
+/**
+ * Safely migrates an existing staff member from a legacy/placeholder UID to their canonical Google Auth UID.
+ * Executed via trusted transactional backend with optimistic concurrency control,
+ * destination identity verification, and atomic audit logging.
+ */
+export async function migrateStaffMemberUid(
+  businessId = DEFAULT_BUSINESS_ID,
+  oldUid,
+  newUid,
+  adminUser,
+  dbInstance = db,
+  destinationEmail = null
+) {
+  return executeStaffUidMigrationTransaction(dbInstance, {
+    businessId,
+    oldUid,
+    newUid,
+    actorUser: adminUser,
+    destinationEmail,
+  });
 }

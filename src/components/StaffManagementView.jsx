@@ -32,6 +32,7 @@ import {
   updateStaffStatus,
   registerStaffMemberDirectly,
   listStaffAuditLogs,
+  migrateStaffMemberUid,
 } from '../firebase/services/staffService';
 
 export default function StaffManagementView({ business }) {
@@ -280,6 +281,29 @@ export default function StaffManagementView({ business }) {
     } catch (err) {
       console.error('Direct registration error:', err);
       alert(`Registration failed: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  /**
+   * Migrate legacy placeholder UID to verified Google UID
+   */
+  const handleMigrateLegacyUid = async (oldUid, newUid, email) => {
+    if (!window.confirm(`Link legacy staff record (${oldUid}) to verified Google identity (${newUid})?\n\nStaff role, status, and creation date will be preserved.`)) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await migrateStaffMemberUid(businessId, oldUid, newUid, {
+        uid: user.uid,
+        email: user.email,
+      });
+      showToast(`Successfully linked ${email} to verified Google UID. Legacy record migrated.`);
+      await loadData();
+    } catch (err) {
+      console.error('Legacy UID migration error:', err);
+      alert(`UID Migration failed: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -695,6 +719,9 @@ export default function StaffManagementView({ business }) {
               {pendingList.map((req) => {
                 const isPending = req.status === 'pending';
                 const isApproved = req.status === 'approved';
+                const legacyMatch = staffList.find(
+                  (s) => s.email && req.email && s.email.toLowerCase() === req.email.toLowerCase() && s.uid !== req.uid
+                );
 
                 return (
                   <div
@@ -746,23 +773,45 @@ export default function StaffManagementView({ business }) {
                             Rejection Note: {req.rejectionReason}
                           </p>
                         )}
+
+                        {legacyMatch && (
+                          <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded-xl text-[11px] text-blue-300 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
+                            <span>
+                              Existing staff record found for <strong className="text-white">{legacyMatch.email}</strong> under legacy UID <code className="font-mono text-amber-400">{legacyMatch.uid.slice(0, 8)}...</code> with role <strong className="uppercase text-white">{legacyMatch.role}</strong>.
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     {/* Action buttons */}
                     {isPending && (
                       <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setApproveModalReq(req);
-                            setApproveRole(ROLES.CASHIER);
-                          }}
-                          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Approve & Assign Role</span>
-                        </button>
+                        {legacyMatch ? (
+                          <button
+                            type="button"
+                            disabled={actionLoading}
+                            onClick={() => handleMigrateLegacyUid(legacyMatch.uid, req.uid, req.email)}
+                            className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95 disabled:opacity-50"
+                            title="Migrate legacy membership to canonical Google UID"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Migrate to Google UID</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApproveModalReq(req);
+                              setApproveRole(ROLES.CASHIER);
+                            }}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Approve & Assign Role</span>
+                          </button>
+                        )}
 
                         <button
                           type="button"

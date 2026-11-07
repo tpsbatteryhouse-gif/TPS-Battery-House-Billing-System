@@ -79,6 +79,14 @@ service cloud.firestore {
       return hasRole(businessId, 'cashier');
     }
 
+    // Check if target user is the designated Primary Administrator
+    // Path: /businesses/{businessId}/settings/admin_config
+    function isPrimaryAdmin(businessId, uid) {
+      return exists(/databases/$(database)/documents/businesses/$(businessId)/settings/admin_config)
+        ? (get(/databases/$(database)/documents/businesses/$(businessId)/settings/admin_config).data.primaryAdminUid == uid)
+        : false;
+    }
+
     // Validate standard RFC-compliant email string format
     function isValidEmail(email) {
       return email is string &&
@@ -174,7 +182,7 @@ service cloud.firestore {
         data.actorUid == request.auth.uid &&
         data.actorEmail is string &&
         isValidEmail(data.actorEmail) &&
-        (data.timestamp is string || data.timestamp is timestamp) &&
+        (data.timestamp is timestamp || (data.timestamp is string && data.timestamp.matches('^20[2-9][0-9]-.*'))) &&
         data.businessId is string &&
         isValidOptionalString(data, 'targetName', 0, 100) &&
         isValidOptionalString(data, 'notes', 0, 500);
@@ -538,15 +546,20 @@ service cloud.firestore {
 
         // Active administrators can update other members.
         // Members cannot modify their own document (prevents self-role/status escalation).
+        // Primary Administrator CANNOT be demoted or disabled.
         allow update: if isAdmin(businessId) &&
                          request.auth.uid != uid &&
                          isValidMember(request.resource.data, uid) &&
-                         areImmutableMemberFieldsUnchanged();
+                         areImmutableMemberFieldsUnchanged() &&
+                         !(isPrimaryAdmin(businessId, uid) &&
+                           (request.resource.data.role != 'admin' || request.resource.data.status != 'active'));
 
         // Active administrators can delete other members.
         // Administrators cannot delete their own document (prevents self-lockout).
+        // Primary Administrator CANNOT be deleted.
         allow delete: if isAdmin(businessId) &&
-                         request.auth.uid != uid;
+                         request.auth.uid != uid &&
+                         !isPrimaryAdmin(businessId, uid);
       }
 
       // -------------------------------------------------------------
@@ -685,33 +698,37 @@ service cloud.firestore {
       // 5. Store Settings Collection: /settings/{settingId}
       // -------------------------------------------------------------
       match /settings/{settingId} {
-        // Restricted financial settings: ONLY administrators can read and list
+        // Restricted configurations: ONLY administrators can read financial_details and admin_config
         // General settings (business_profile, print_config, etc.): readable by active staff
-        allow read: if settingId == 'financial_details'
+        allow read: if (settingId == 'financial_details' || settingId == 'admin_config')
                       ? isAdmin(businessId)
                       : isActiveMember(businessId);
 
-        // Only administrators can create or modify settings
-        // Managers and Cashiers are strictly denied from creating or modifying settings
-        allow create: if isAdmin(businessId) &&
-                         (settingId == 'business_profile'
-                           ? isValidBusinessSettings(request.resource.data, settingId)
-                           : settingId == 'financial_details'
-                             ? isValidFinancialDetails(request.resource.data, settingId)
-                             : isValidSetting(request.resource.data, settingId));
+        // Protected Admin Config can NEVER be created, updated, or deleted by clients directly
+        // Only trusted backend / Admin SDK or recovery scripts can manage admin_config
+        allow create: if settingId == 'admin_config'
+                        ? false
+                        : (isAdmin(businessId) &&
+                           (settingId == 'business_profile'
+                             ? isValidBusinessSettings(request.resource.data, settingId)
+                             : settingId == 'financial_details'
+                               ? isValidFinancialDetails(request.resource.data, settingId)
+                               : isValidSetting(request.resource.data, settingId)));
 
-        allow update: if isAdmin(businessId) &&
-                         (settingId == 'business_profile'
-                           ? (isValidBusinessSettings(request.resource.data, settingId) &&
-                              (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
-                              (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy))
-                           : settingId == 'financial_details'
-                             ? (isValidFinancialDetails(request.resource.data, settingId) &&
+        allow update: if settingId == 'admin_config'
+                        ? false
+                        : (isAdmin(businessId) &&
+                           (settingId == 'business_profile'
+                             ? (isValidBusinessSettings(request.resource.data, settingId) &&
                                 (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
                                 (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy))
-                             : isValidSetting(request.resource.data, settingId));
+                             : settingId == 'financial_details'
+                               ? (isValidFinancialDetails(request.resource.data, settingId) &&
+                                  (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+                                  (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy))
+                               : isValidSetting(request.resource.data, settingId)));
 
-        allow delete: if isAdmin(businessId);
+        allow delete: if settingId == 'admin_config' ? false : isAdmin(businessId);
       }
 
       // -------------------------------------------------------------
@@ -833,9 +850,38 @@ service cloud.firestore {
         // Only active administrators can read staff administrative audit logs
         allow read: if isAdmin(businessId);
 
-        // Only active administrators can record audit logs; actorUid must match caller
+        // Only active administrators can record audit logs;
+        // Strict anti-forgery guards:
+        // 1. actorUid matches request.auth.uid (cannot forge actorUid)
+        // 2. actorEmail matches request.auth.token.email if present (cannot forge actorEmail)
+        // 3. Standalone fabrication prevented: audit log must match corresponding member/registration state
         allow create: if isAdmin(businessId) &&
-                         isValidStaffAuditLog(request.resource.data, logId);
+                         isValidStaffAuditLog(request.resource.data, logId) &&
+                         request.resource.data.actorUid == request.auth.uid &&
+                         (!('email' in request.auth.token) || request.resource.data.actorEmail == request.auth.token.email) &&
+                         (
+                           (request.resource.data.action == 'ROLE_CHANGED' &&
+                            ('newValue' in request.resource.data) &&
+                            request.resource.data.newValue is map &&
+                            ('role' in request.resource.data.newValue) &&
+                            existsAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)) &&
+                            getAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)).data.role == request.resource.data.newValue.role) ||
+                           (request.resource.data.action == 'STATUS_CHANGED' &&
+                            ('newValue' in request.resource.data) &&
+                            request.resource.data.newValue is map &&
+                            ('status' in request.resource.data.newValue) &&
+                            existsAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)) &&
+                            getAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)).data.status == request.resource.data.newValue.status) ||
+                           (request.resource.data.action == 'STAFF_APPROVED' &&
+                            ('newValue' in request.resource.data) &&
+                            request.resource.data.newValue is map &&
+                            ('role' in request.resource.data.newValue) &&
+                            existsAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)) &&
+                            getAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)).data.role == request.resource.data.newValue.role) ||
+                           (request.resource.data.action == 'STAFF_REJECTED' &&
+                            existsAfter(/databases/$(database)/documents/businesses/$(businessId)/pending_registrations/$(request.resource.data.targetUid)) &&
+                            getAfter(/databases/$(database)/documents/businesses/$(businessId)/pending_registrations/$(request.resource.data.targetUid)).data.status == 'rejected')
+                         );
 
         // STRICTLY IMMUTABLE: Staff audit logs can NEVER be updated or deleted by anyone
         allow update, delete: if false;

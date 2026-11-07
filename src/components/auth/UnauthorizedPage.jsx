@@ -147,11 +147,11 @@ export default function UnauthorizedPage({ business }) {
             </div>
           </div>
 
-          {/* Copyable UID Box */}
+          {/* Canonical UID Box */}
           <div className="pt-2 border-t border-slate-800/80 space-y-1">
             <div className="flex items-center justify-between text-[11px] text-slate-400">
-              <span>Your Staff UID:</span>
-              <span className="text-[10px] text-slate-500">Firebase Security Identity</span>
+              <span>Canonical Google UID:</span>
+              <span className="text-[10px] text-emerald-400 font-mono">Immutable Identity</span>
             </div>
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-700/80 rounded-xl p-2">
               <code className="text-xs font-mono text-amber-400 truncate flex-1 select-all">
@@ -176,6 +176,9 @@ export default function UnauthorizedPage({ business }) {
                 )}
               </button>
             </div>
+            <p className="text-[10px] text-slate-500 pt-0.5">
+              Automated authentication verification. Do not manually edit database records.
+            </p>
           </div>
         </div>
 

@@ -25,7 +25,7 @@ import {
 
 const EMULATOR_HOST = '127.0.0.1';
 const EMULATOR_PORT = 8980;
-const PROJECT_ID = 'tps-battery-adversarial';
+const PROJECT_ID = `tps-battery-adversarial-${Date.now()}`;
 const BIZ_ID = 'tps-battery-house';
 
 let passed = 0;
