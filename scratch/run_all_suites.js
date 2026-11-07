@@ -2,6 +2,7 @@ import { execSync, spawn } from 'child_process';
 import http from 'http';
 
 const suites = [
+  'scratch/test_final_security_hardening.js',
   'scratch/test_staff_removal.js',
   'scratch/test_staff_security_hardening.js',
   'scratch/test_google_auth_identity_lifecycle.js',

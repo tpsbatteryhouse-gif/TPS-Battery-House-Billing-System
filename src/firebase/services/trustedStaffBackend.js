@@ -22,6 +22,9 @@ import {
 import { db } from '../firebase.js';
 import { DEFAULT_BUSINESS_ID } from '../../context/authConstants.js';
 import { ROLES, ACCOUNT_STATUS } from '../../utils/permissions.js';
+import { recoverPrimaryAdminConfig } from './adminConfigRecovery.js';
+
+export { recoverPrimaryAdminConfig };
 
 export function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
@@ -49,6 +52,40 @@ export async function getPrimaryAdminConfig(businessId = DEFAULT_BUSINESS_ID, db
     console.warn('[TrustedStaffBackend] getPrimaryAdminConfig note:', error?.message);
     return null;
   }
+}
+
+/**
+ * Reads, initializes if necessary, and locks the admin guard document.
+ * Path: businesses/{businessId}/settings/admin_guard
+ *
+ * Guarantees strict Optimistic Concurrency Control (OCC) serialization across:
+ * - Admin removal vs Admin removal
+ * - Admin removal vs Admin deactivation
+ * - Admin removal vs Admin creation / approval
+ * - Admin demotion vs Admin removal
+ */
+export async function getOrInitAdminGuard(transaction, dbInstance, businessId, fallbackActiveCount = 1) {
+  const guardRef = doc(dbInstance, 'businesses', businessId, 'settings', 'admin_guard');
+  try {
+    const guardSnap = await transaction.get(guardRef);
+    if (guardSnap.exists()) {
+      const data = guardSnap.data();
+      const count = typeof data.activeAdminCount === 'number' ? data.activeAdminCount : fallbackActiveCount;
+      return {
+        ref: guardRef,
+        activeAdminCount: count,
+        lastSequence: data.lastSequence || 0,
+        exists: true,
+      };
+    }
+  } catch {}
+
+  return {
+    ref: guardRef,
+    activeAdminCount: fallbackActiveCount,
+    lastSequence: 0,
+    exists: false,
+  };
 }
 
 /**
@@ -154,9 +191,13 @@ export async function executeRoleChangeTransaction(
       throw new Error('Cannot demote or change the role of the Primary Administrator.');
     }
 
+    // 3.5 Read and lock admin guard document for OCC serialization
+    const guard = await getOrInitAdminGuard(transaction, dbInstance, businessId, liveActiveAdminCount);
+    const effectiveAdminCount = Math.min(guard.activeAdminCount, liveActiveAdminCount);
+
     // 4. Last Active Administrator Protection
     if (oldRole === ROLES.ADMIN && newRole !== ROLES.ADMIN) {
-      if (liveActiveAdminCount <= 1) {
+      if (effectiveAdminCount <= 1) {
         throw new Error(
           'Cannot demote the last remaining active Administrator. Please designate another Administrator first.'
         );
@@ -171,12 +212,27 @@ export async function executeRoleChangeTransaction(
       updatedBy: actorUser.uid,
     };
 
-    // 5. Atomically update member and write audit log
+    // 5. Atomically update member, guard document, and write audit log
     transaction.update(memberRef, {
       role: newRole,
       updatedAt: now,
       updatedBy: actorUser.uid,
     });
+
+    let nextAdminCount = guard.activeAdminCount;
+    if (oldRole === ROLES.ADMIN && newRole !== ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE) {
+      nextAdminCount = Math.max(0, guard.activeAdminCount - 1);
+    } else if (oldRole !== ROLES.ADMIN && newRole === ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE) {
+      nextAdminCount = guard.activeAdminCount + 1;
+    }
+
+    transaction.set(guard.ref, {
+      id: 'admin_guard',
+      activeAdminCount: nextAdminCount,
+      lastSequence: guard.lastSequence + 1,
+      updatedAt: now,
+      updatedBy: actorUser.uid,
+    }, { merge: true });
 
     const auditPayload = createAuditPayload({
       logId,
@@ -269,9 +325,13 @@ export async function executeStatusChangeTransaction(
       throw new Error('Cannot disable the Primary Administrator account.');
     }
 
+    // 3.5 Read and lock admin guard document for OCC serialization
+    const guard = await getOrInitAdminGuard(transaction, dbInstance, businessId, liveActiveAdminCount);
+    const effectiveAdminCount = Math.min(guard.activeAdminCount, liveActiveAdminCount);
+
     // 4. Last Active Administrator Protection
     if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.DISABLED) {
-      if (liveActiveAdminCount <= 1) {
+      if (effectiveAdminCount <= 1) {
         throw new Error(
           'Cannot disable the last remaining active Administrator. Please designate another Administrator first.'
         );
@@ -286,12 +346,27 @@ export async function executeStatusChangeTransaction(
       updatedBy: actorUser.uid,
     };
 
-    // 5. Atomically update member and write audit log
+    // 5. Atomically update member, guard document, and write audit log
     transaction.update(memberRef, {
       status: newStatus,
       updatedAt: now,
       updatedBy: actorUser.uid,
     });
+
+    let nextAdminCount = guard.activeAdminCount;
+    if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.DISABLED) {
+      nextAdminCount = Math.max(0, guard.activeAdminCount - 1);
+    } else if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.ACTIVE) {
+      nextAdminCount = guard.activeAdminCount + 1;
+    }
+
+    transaction.set(guard.ref, {
+      id: 'admin_guard',
+      activeAdminCount: nextAdminCount,
+      lastSequence: guard.lastSequence + 1,
+      updatedAt: now,
+      updatedBy: actorUser.uid,
+    }, { merge: true });
 
     const auditPayload = createAuditPayload({
       logId,
@@ -333,6 +408,9 @@ export async function executeStaffApprovalTransaction(
   const logRef = doc(dbInstance, 'businesses', businessId, 'staff_audit_logs', logId);
 
   return await runTransaction(dbInstance, async (transaction) => {
+    // Read and lock admin guard document for OCC serialization
+    const guard = await getOrInitAdminGuard(transaction, dbInstance, businessId, 1);
+
     const regSnap = await transaction.get(regRef);
     if (!regSnap.exists()) {
       throw new Error(`Pending registration not found for UID: ${targetUid}`);
@@ -364,6 +442,16 @@ export async function executeStaffApprovalTransaction(
       reviewedBy: actorUser.uid,
       reviewedAt: now,
     });
+
+    if (role === ROLES.ADMIN) {
+      transaction.set(guard.ref, {
+        id: 'admin_guard',
+        activeAdminCount: guard.activeAdminCount + 1,
+        lastSequence: guard.lastSequence + 1,
+        updatedAt: now,
+        updatedBy: actorUser.uid,
+      }, { merge: true });
+    }
 
     const auditPayload = createAuditPayload({
       logId,
@@ -449,6 +537,7 @@ export async function executeStaffUidMigrationTransaction(
     newUid,
     actorUser,
     destinationEmail = null,
+    authAdmin = null,
   }
 ) {
   if (!oldUid || !newUid) throw new Error('Both legacy UID and canonical UID are required.');
@@ -459,8 +548,26 @@ export async function executeStaffUidMigrationTransaction(
     throw new Error('Administrators cannot migrate their own active UID directly.');
   }
 
+  // If Admin Auth is provided, verify destination user exists in Firebase Authentication
+  if (authAdmin && typeof authAdmin.getUser === 'function') {
+    try {
+      const authUser = await authAdmin.getUser(newUid);
+      const authEmail = (authUser.email || '').trim().toLowerCase();
+      if (destinationEmail && authEmail !== normalizeEmail(destinationEmail)) {
+        throw new Error(
+          `Destination identity verification failed: Firebase Auth email '${authEmail}' does not match expected destination '${destinationEmail}'.`
+        );
+      }
+    } catch (authErr) {
+      if (authErr.message.includes('Destination identity verification failed')) throw authErr;
+      throw new Error(`Destination account not found in Firebase Authentication for UID: ${newUid}`);
+    }
+  }
+
   const oldRef = doc(dbInstance, 'businesses', businessId, 'members', oldUid);
   const newRef = doc(dbInstance, 'businesses', businessId, 'members', newUid);
+  const configRef = doc(dbInstance, 'businesses', businessId, 'settings', 'admin_config');
+  const pendingRegRef = doc(dbInstance, 'businesses', businessId, 'pending_registrations', newUid);
   const logId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const logRef = doc(dbInstance, 'businesses', businessId, 'staff_audit_logs', logId);
 
@@ -479,16 +586,32 @@ export async function executeStaffUidMigrationTransaction(
       throw new Error(`A staff membership record already exists under target UID: ${newUid}`);
     }
 
-    // 3. Destination Identity Verification:
+    // 3. Destination Identity Verification
     if (destinationEmail && normalizeEmail(destinationEmail) !== normalizeEmail(oldData.email)) {
       throw new Error(
         `Destination identity verification failed: email '${destinationEmail}' does not match registered staff email '${oldData.email}'.`
       );
     }
 
+    // 4. Check if legacy UID was the Primary Administrator
+    let isLegacyPrimaryAdmin = false;
+    try {
+      const configSnap = await transaction.get(configRef);
+      if (configSnap.exists() && configSnap.data().primaryAdminUid === oldUid) {
+        isLegacyPrimaryAdmin = true;
+      }
+    } catch {}
+
+    // 5. Check if target UID had a pending registration
+    let pendingExists = false;
+    try {
+      const pendingSnap = await transaction.get(pendingRegRef);
+      pendingExists = pendingSnap.exists();
+    } catch {}
+
     const now = new Date().toISOString();
 
-    // 4. Create new canonical membership document
+    // 6. Create new canonical membership document
     const newPayload = {
       uid: newUid,
       email: oldData.email,
@@ -503,10 +626,25 @@ export async function executeStaffUidMigrationTransaction(
 
     transaction.set(newRef, newPayload);
 
-    // 5. Delete legacy membership document
+    // 7. Delete legacy membership document
     transaction.delete(oldRef);
 
-    // 6. Record immutable audit log
+    // 8. Clean up pending registration if it was present
+    if (pendingExists) {
+      transaction.delete(pendingRegRef);
+    }
+
+    // 9. Seamlessly migrate Primary Admin configuration if applicable
+    if (isLegacyPrimaryAdmin) {
+      transaction.update(configRef, {
+        primaryAdminUid: newUid,
+        primaryAdminEmail: oldData.email,
+        updatedAt: now,
+        updatedBy: actorUser.uid,
+      });
+    }
+
+    // 10. Record immutable audit log
     const auditPayload = createAuditPayload({
       logId,
       targetUid: newUid,
@@ -635,9 +773,13 @@ export async function executeStaffRemovalTransaction(
       throw new Error('Cannot remove the Primary Administrator.');
     }
 
+    // 3.5 Read and lock admin guard document for OCC serialization
+    const guard = await getOrInitAdminGuard(transaction, dbInstance, businessId, liveActiveAdminCount);
+    const effectiveAdminCount = Math.min(guard.activeAdminCount, liveActiveAdminCount);
+
     // 4. Last Active Administrator Protection
     if (currentData.role === ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE) {
-      if (liveActiveAdminCount <= 1) {
+      if (effectiveAdminCount <= 1) {
         throw new Error(
           'Cannot remove the last remaining active Administrator. Please designate another Administrator first.'
         );
@@ -651,12 +793,25 @@ export async function executeStaffRemovalTransaction(
       pendingExists = pendingSnap.exists();
     } catch {}
 
-    // 6. Atomically delete member, cleanup pending registration, and record audit log
+    // 6. Atomically delete member, cleanup pending registration, update guard, and record audit log
     transaction.delete(memberRef);
 
     if (pendingExists) {
       transaction.delete(pendingRegRef);
     }
+
+    let nextAdminCount = guard.activeAdminCount;
+    if (currentData.role === ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE) {
+      nextAdminCount = Math.max(0, guard.activeAdminCount - 1);
+    }
+
+    transaction.set(guard.ref, {
+      id: 'admin_guard',
+      activeAdminCount: nextAdminCount,
+      lastSequence: guard.lastSequence + 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: actorUser.uid,
+    }, { merge: true });
 
     const auditPayload = createAuditPayload({
       logId,

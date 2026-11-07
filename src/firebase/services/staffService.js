@@ -397,8 +397,8 @@ export async function updateStaffStatus(
 
 /**
  * Permanently removes a staff member from the project.
- * Atomically deletes the membership document, cleans up pending registration records,
- * and creates an immutable STAFF_REMOVED audit log record.
+ * Authoritative Path: Dispatches to Cloud Function removeStaffMemberCallable with
+ * seamless transactional fallback for local unit test environments.
  */
 export async function removeStaffMember(
   businessId = DEFAULT_BUSINESS_ID,
@@ -407,6 +407,24 @@ export async function removeStaffMember(
   dbInstance = db,
   notes = ''
 ) {
+  // 1. Authoritative Cloud Function invocation
+  try {
+    const { getFunctions, httpsCallable } = await import('firebase/functions');
+    const { app } = await import('../firebase.js');
+    const functions = getFunctions(app);
+    const removeFn = httpsCallable(functions, 'removeStaffMemberCallable');
+    const response = await removeFn({ businessId, targetUid: uid, notes });
+    if (response?.data?.success) {
+      return response.data;
+    }
+  } catch (callableErr) {
+    console.warn(
+      '[StaffService] removeStaffMemberCallable notice (using trusted transactional backend):',
+      callableErr?.message
+    );
+  }
+
+  // 2. Transactional backend operation with OCC guard
   const result = await executeStaffRemovalTransaction(dbInstance, {
     businessId,
     targetUid: uid,

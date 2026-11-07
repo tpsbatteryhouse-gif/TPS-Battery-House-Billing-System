@@ -16,11 +16,38 @@ import { getAuth } from 'firebase-admin/auth';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 
 if (!getApps().length) {
-  initializeApp();
+  initializeApp({
+    projectId: process.env.GCLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID || 'tps-battery-house',
+  });
 }
 
-const adminDb = getFirestore();
-const adminAuth = getAuth();
+let adminDb = getFirestore();
+let adminAuth = getAuth();
+
+/**
+ * Configures the admin instances for a specific project (used in automated test suites against emulators)
+ */
+export function configureAdminForProject(projectId) {
+  const appName = `admin-app-${projectId}`;
+  let app;
+  const existing = getApps().find((a) => a.name === appName);
+  if (existing) {
+    app = existing;
+  } else {
+    app = initializeApp({ projectId }, appName);
+  }
+  adminDb = getFirestore(app);
+  adminAuth = getAuth(app);
+  return { adminDb, adminAuth };
+}
+
+/**
+ * Allows test suites to inject custom Firestore/Auth instances (e.g. from rules-unit-testing context)
+ */
+export function setAdminInstancesForTesting(customDb, customAuth) {
+  if (customDb) adminDb = customDb;
+  if (customAuth) adminAuth = customAuth;
+}
 
 const DEFAULT_BUSINESS_ID = 'tps-battery-house';
 const ROLES = { ADMIN: 'admin', MANAGER: 'manager', CASHIER: 'cashier' };
@@ -50,6 +77,37 @@ async function assertCallerIsAdmin(request, businessId = DEFAULT_BUSINESS_ID) {
   return {
     uid: callerUid,
     email: request.auth.token.email || callerData.email,
+  };
+}
+
+/**
+ * Reads, initializes if necessary, and locks the admin guard document in Cloud Functions.
+ * Path: businesses/{businessId}/settings/admin_guard
+ *
+ * Guarantees strict Optimistic Concurrency Control (OCC) serialization across:
+ * - Admin removal vs Admin removal
+ * - Admin removal vs Admin deactivation
+ * - Admin removal vs Admin creation / approval
+ * - Admin demotion vs Admin removal
+ */
+async function getOrInitAdminGuard(transaction, businessId, fallbackActiveCount = 1) {
+  const guardRef = adminDb.doc(`businesses/${businessId}/settings/admin_guard`);
+  const guardSnap = await transaction.get(guardRef);
+  if (guardSnap.exists) {
+    const data = guardSnap.data();
+    const count = typeof data.activeAdminCount === 'number' ? data.activeAdminCount : fallbackActiveCount;
+    return {
+      ref: guardRef,
+      activeAdminCount: count,
+      lastSequence: data.lastSequence || 0,
+      exists: true,
+    };
+  }
+  return {
+    ref: guardRef,
+    activeAdminCount: fallbackActiveCount,
+    lastSequence: 0,
+    exists: false,
   };
 }
 
@@ -92,17 +150,15 @@ export const updateStaffRoleCallable = onCall(async (request) => {
         }
       }
 
+      // 3.5 Read and lock admin guard document for OCC serialization
+      const guard = await getOrInitAdminGuard(transaction, businessId, 1);
+
       // Last Active Admin check
       if (oldRole === ROLES.ADMIN && newRole !== ROLES.ADMIN) {
-        const activeAdminsSnap = await transaction.get(
-          adminDb.collection(`businesses/${businessId}/members`)
-            .where('role', '==', ROLES.ADMIN)
-            .where('status', '==', ACCOUNT_STATUS.ACTIVE)
-        );
-        if (activeAdminsSnap.size <= 1) {
+        if (guard.activeAdminCount <= 1) {
           throw new HttpsError(
             'failed-precondition',
-            'Cannot demote the last remaining active Administrator.'
+            'Cannot demote the last remaining active Administrator. Please designate another Administrator first.'
           );
         }
       }
@@ -113,6 +169,21 @@ export const updateStaffRoleCallable = onCall(async (request) => {
         updatedAt: now,
         updatedBy: actorUser.uid,
       });
+
+      let nextAdminCount = guard.activeAdminCount;
+      if (oldRole === ROLES.ADMIN && newRole !== ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE) {
+        nextAdminCount = Math.max(0, guard.activeAdminCount - 1);
+      } else if (oldRole !== ROLES.ADMIN && newRole === ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE) {
+        nextAdminCount = guard.activeAdminCount + 1;
+      }
+
+      transaction.set(guard.ref, {
+        id: 'admin_guard',
+        activeAdminCount: nextAdminCount,
+        lastSequence: guard.lastSequence + 1,
+        updatedAt: now,
+        updatedBy: actorUser.uid,
+      }, { merge: true });
 
       transaction.set(logRef, {
         id: logId,
@@ -176,17 +247,15 @@ export const updateStaffStatusCallable = onCall(async (request) => {
         }
       }
 
+      // 3.5 Read and lock admin guard document for OCC serialization
+      const guard = await getOrInitAdminGuard(transaction, businessId, 1);
+
       // Last Active Admin check
       if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.DISABLED) {
-        const activeAdminsSnap = await transaction.get(
-          adminDb.collection(`businesses/${businessId}/members`)
-            .where('role', '==', ROLES.ADMIN)
-            .where('status', '==', ACCOUNT_STATUS.ACTIVE)
-        );
-        if (activeAdminsSnap.size <= 1) {
+        if (guard.activeAdminCount <= 1) {
           throw new HttpsError(
             'failed-precondition',
-            'Cannot disable the last remaining active Administrator.'
+            'Cannot disable the last remaining active Administrator. Please designate another Administrator first.'
           );
         }
       }
@@ -197,6 +266,21 @@ export const updateStaffStatusCallable = onCall(async (request) => {
         updatedAt: now,
         updatedBy: actorUser.uid,
       });
+
+      let nextAdminCount = guard.activeAdminCount;
+      if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.DISABLED) {
+        nextAdminCount = Math.max(0, guard.activeAdminCount - 1);
+      } else if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.ACTIVE) {
+        nextAdminCount = guard.activeAdminCount + 1;
+      }
+
+      transaction.set(guard.ref, {
+        id: 'admin_guard',
+        activeAdminCount: nextAdminCount,
+        lastSequence: guard.lastSequence + 1,
+        updatedAt: now,
+        updatedBy: actorUser.uid,
+      }, { merge: true });
 
       transaction.set(logRef, {
         id: logId,
@@ -254,6 +338,8 @@ export const approveStaffMemberCallable = onCall(async (request) => {
 
   try {
     return await adminDb.runTransaction(async (transaction) => {
+      const guard = await getOrInitAdminGuard(transaction, businessId, 1);
+
       const regSnap = await transaction.get(regRef);
       if (!regSnap.exists) {
         throw new HttpsError('not-found', `Pending registration not found for UID: ${targetUid}`);
@@ -280,6 +366,16 @@ export const approveStaffMemberCallable = onCall(async (request) => {
         reviewedBy: actorUser.uid,
         reviewedAt: now,
       });
+
+      if (role === ROLES.ADMIN) {
+        transaction.set(guard.ref, {
+          id: 'admin_guard',
+          activeAdminCount: guard.activeAdminCount + 1,
+          lastSequence: guard.lastSequence + 1,
+          updatedAt: now,
+          updatedBy: actorUser.uid,
+        }, { merge: true });
+      }
 
       transaction.set(logRef, {
         id: logId,
@@ -374,8 +470,29 @@ export const migrateStaffMemberUidCallable = onCall(async (request) => {
     throw new HttpsError('permission-denied', 'Administrators cannot migrate their own active UID directly.');
   }
 
+  // 1. Destination identity verification directly against Firebase Authentication
+  let destinationAuthUser;
+  try {
+    destinationAuthUser = await adminAuth.getUser(newUid);
+  } catch {
+    throw new HttpsError(
+      'not-found',
+      `Destination user account not found in Firebase Authentication for UID: ${newUid}`
+    );
+  }
+
+  const destinationAuthEmail = (destinationAuthUser.email || '').trim().toLowerCase();
+  if (!destinationAuthEmail) {
+    throw new HttpsError(
+      'failed-precondition',
+      'Destination Firebase Authentication account does not have an associated email address.'
+    );
+  }
+
   const oldRef = adminDb.doc(`businesses/${businessId}/members/${oldUid}`);
   const newRef = adminDb.doc(`businesses/${businessId}/members/${newUid}`);
+  const configRef = adminDb.doc(`businesses/${businessId}/settings/admin_config`);
+  const pendingRegRef = adminDb.doc(`businesses/${businessId}/pending_registrations/${newUid}`);
   const logId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const logRef = adminDb.doc(`businesses/${businessId}/staff_audit_logs/${logId}`);
 
@@ -392,14 +509,32 @@ export const migrateStaffMemberUidCallable = onCall(async (request) => {
       }
 
       const oldData = oldSnap.data();
+      const registeredEmail = (oldData.email || '').trim().toLowerCase();
 
-      // Destination identity verification
-      if (destinationEmail && destinationEmail.trim().toLowerCase() !== oldData.email.trim().toLowerCase()) {
+      // Destination identity verification: Auth email must match registered staff email
+      if (destinationAuthEmail !== registeredEmail) {
         throw new HttpsError(
           'permission-denied',
-          `Destination account email does not match registered staff email: ${oldData.email}`
+          `Destination Firebase Authentication account email ('${destinationAuthEmail}') does not match registered staff email ('${registeredEmail}'). Migration aborted.`
         );
       }
+
+      if (destinationEmail && destinationEmail.trim().toLowerCase() !== registeredEmail) {
+        throw new HttpsError(
+          'invalid-argument',
+          `Provided destinationEmail ('${destinationEmail}') does not match registered staff email ('${registeredEmail}').`
+        );
+      }
+
+      // Check if legacy user was the Primary Administrator
+      let isLegacyPrimaryAdmin = false;
+      const configSnap = await transaction.get(configRef);
+      if (configSnap.exists && configSnap.data().primaryAdminUid === oldUid) {
+        isLegacyPrimaryAdmin = true;
+      }
+
+      // Check if target UID had a pending registration
+      const pendingSnap = await transaction.get(pendingRegRef);
 
       const now = new Date().toISOString();
       const newPayload = {
@@ -416,6 +551,19 @@ export const migrateStaffMemberUidCallable = onCall(async (request) => {
 
       transaction.set(newRef, newPayload);
       transaction.delete(oldRef);
+
+      if (pendingSnap.exists) {
+        transaction.delete(pendingRegRef);
+      }
+
+      if (isLegacyPrimaryAdmin) {
+        transaction.update(configRef, {
+          primaryAdminUid: newUid,
+          primaryAdminEmail: oldData.email,
+          updatedAt: now,
+          updatedBy: actorUser.uid,
+        });
+      }
 
       transaction.set(logRef, {
         id: logId,
@@ -497,14 +645,12 @@ export const removeStaffMemberCallable = onCall(async (request) => {
         }
       }
 
+      // 3.5 Read and lock admin guard document for OCC serialization
+      const guard = await getOrInitAdminGuard(transaction, businessId, 1);
+
       // Last Active Admin check
       if (currentData.role === ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE) {
-        const activeAdminsSnap = await transaction.get(
-          adminDb.collection(`businesses/${businessId}/members`)
-            .where('role', '==', ROLES.ADMIN)
-            .where('status', '==', ACCOUNT_STATUS.ACTIVE)
-        );
-        if (activeAdminsSnap.size <= 1) {
+        if (guard.activeAdminCount <= 1) {
           throw new HttpsError(
             'failed-precondition',
             'Cannot remove the last remaining active Administrator. Please designate another Administrator first.'
@@ -523,7 +669,21 @@ export const removeStaffMemberCallable = onCall(async (request) => {
         transaction.delete(pendingRegRef);
       }
 
+      let nextAdminCount = guard.activeAdminCount;
+      if (currentData.role === ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE) {
+        nextAdminCount = Math.max(0, guard.activeAdminCount - 1);
+      }
+
       const now = new Date().toISOString();
+
+      transaction.set(guard.ref, {
+        id: 'admin_guard',
+        activeAdminCount: nextAdminCount,
+        lastSequence: guard.lastSequence + 1,
+        updatedAt: now,
+        updatedBy: actorUser.uid,
+      }, { merge: true });
+
       transaction.set(logRef, {
         id: logId,
         targetUid,
