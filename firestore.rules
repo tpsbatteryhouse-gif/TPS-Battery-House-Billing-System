@@ -177,7 +177,7 @@ service cloud.firestore {
         data.targetEmail is string &&
         isValidEmail(data.targetEmail) &&
         data.action is string &&
-        data.action in ['STAFF_APPROVED', 'STAFF_REJECTED', 'ROLE_CHANGED', 'STATUS_CHANGED', 'STAFF_REGISTERED'] &&
+        data.action in ['STAFF_APPROVED', 'STAFF_REJECTED', 'ROLE_CHANGED', 'STATUS_CHANGED', 'STAFF_REGISTERED', 'STAFF_REMOVED'] &&
         data.actorUid is string &&
         data.actorUid == request.auth.uid &&
         data.actorEmail is string &&
@@ -880,7 +880,9 @@ service cloud.firestore {
                             getAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)).data.role == request.resource.data.newValue.role) ||
                            (request.resource.data.action == 'STAFF_REJECTED' &&
                             existsAfter(/databases/$(database)/documents/businesses/$(businessId)/pending_registrations/$(request.resource.data.targetUid)) &&
-                            getAfter(/databases/$(database)/documents/businesses/$(businessId)/pending_registrations/$(request.resource.data.targetUid)).data.status == 'rejected')
+                            getAfter(/databases/$(database)/documents/businesses/$(businessId)/pending_registrations/$(request.resource.data.targetUid)).data.status == 'rejected') ||
+                           (request.resource.data.action == 'STAFF_REMOVED' &&
+                            !existsAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)))
                          );
 
         // STRICTLY IMMUTABLE: Staff audit logs can NEVER be updated or deleted by anyone

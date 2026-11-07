@@ -556,3 +556,128 @@ export async function revokeStaffSession(authAdmin, targetUid) {
     note: 'Admin SDK not directly attached in client runtime; token revocation queued for Cloud Function.',
   };
 }
+
+/**
+ * Permanently removes a staff member from the project.
+ * Enforces:
+ * 1. Self-removal prevention
+ * 2. Primary Administrator protection (cannot be removed)
+ * 3. Last Active Administrator protection (cannot leave project without an active admin)
+ * 4. Atomic membership deletion, pending registration cleanup, and audit logging.
+ */
+export async function executeStaffRemovalTransaction(
+  dbInstance = db,
+  {
+    businessId = DEFAULT_BUSINESS_ID,
+    targetUid,
+    actorUser,
+    primaryAdminUid: explicitPrimaryAdminUid,
+    notes = '',
+  }
+) {
+  if (!targetUid) throw new Error('Target User ID is required');
+  if (!actorUser || !actorUser.uid) throw new Error('Administrator identity is required');
+
+  if (targetUid === actorUser.uid) {
+    throw new Error('Administrators cannot remove their own account.');
+  }
+
+  // Pre-query active administrators
+  let activeAdminDocs = [];
+  try {
+    const membersRef = collection(dbInstance, 'businesses', businessId, 'members');
+    const adminQuery = query(
+      membersRef,
+      where('role', '==', ROLES.ADMIN),
+      where('status', '==', ACCOUNT_STATUS.ACTIVE)
+    );
+    const snap = await getDocs(adminQuery);
+    activeAdminDocs = snap.docs;
+  } catch {}
+
+  const memberRef = doc(dbInstance, 'businesses', businessId, 'members', targetUid);
+  const pendingRegRef = doc(dbInstance, 'businesses', businessId, 'pending_registrations', targetUid);
+  const logId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const logRef = doc(dbInstance, 'businesses', businessId, 'staff_audit_logs', logId);
+
+  return await runTransaction(dbInstance, async (transaction) => {
+    // 1. Transactional reads of active admins to lock and detect concurrent conflicts
+    let liveActiveAdminCount = 0;
+    for (const aDoc of activeAdminDocs) {
+      const snap = await transaction.get(aDoc.ref);
+      if (snap.exists() && snap.data().role === ROLES.ADMIN && snap.data().status === ACCOUNT_STATUS.ACTIVE) {
+        liveActiveAdminCount++;
+      }
+    }
+
+    // 2. Read target member document
+    const memberSnap = await transaction.get(memberRef);
+    if (!memberSnap.exists()) {
+      throw new Error(`Staff member not found for UID: ${targetUid}`);
+    }
+
+    const currentData = memberSnap.data();
+
+    // 3. Read Primary Admin configuration
+    let primaryUid = explicitPrimaryAdminUid;
+    if (!primaryUid) {
+      try {
+        const configRef = doc(dbInstance, 'businesses', businessId, 'settings', 'admin_config');
+        const configSnap = await transaction.get(configRef);
+        if (configSnap.exists()) {
+          primaryUid = configSnap.data().primaryAdminUid;
+        }
+      } catch {}
+    }
+
+    // Safeguard: Primary Admin cannot be removed
+    if (primaryUid && targetUid === primaryUid) {
+      throw new Error('Cannot remove the Primary Administrator.');
+    }
+
+    // 4. Last Active Administrator Protection
+    if (currentData.role === ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE) {
+      if (liveActiveAdminCount <= 1) {
+        throw new Error(
+          'Cannot remove the last remaining active Administrator. Please designate another Administrator first.'
+        );
+      }
+    }
+
+    // 5. Read pending registration (if exists) before any writes (Firestore read-before-write constraint)
+    let pendingExists = false;
+    try {
+      const pendingSnap = await transaction.get(pendingRegRef);
+      pendingExists = pendingSnap.exists();
+    } catch {}
+
+    // 6. Atomically delete member, cleanup pending registration, and record audit log
+    transaction.delete(memberRef);
+
+    if (pendingExists) {
+      transaction.delete(pendingRegRef);
+    }
+
+    const auditPayload = createAuditPayload({
+      logId,
+      targetUid,
+      targetEmail: currentData.email,
+      targetName: currentData.displayName,
+      action: 'STAFF_REMOVED',
+      previousValue: { role: currentData.role, status: currentData.status },
+      newValue: null,
+      actorUser,
+      businessId,
+      notes: notes || `Permanently removed staff member (${currentData.displayName || currentData.email}) from project`,
+    });
+
+    transaction.set(logRef, auditPayload);
+
+    return {
+      success: true,
+      removedUid: targetUid,
+      targetEmail: currentData.email,
+      targetName: currentData.displayName,
+    };
+  });
+}

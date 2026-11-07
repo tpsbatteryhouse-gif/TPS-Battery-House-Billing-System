@@ -461,3 +461,103 @@ export const revokeStaffSessionCallable = onCall(async (request) => {
   }
 });
 
+/**
+ * Cloud Function: Remove Staff Member Permanently
+ */
+export const removeStaffMemberCallable = onCall(async (request) => {
+  const { businessId = DEFAULT_BUSINESS_ID, targetUid, notes } = request.data || {};
+  const actorUser = await assertCallerIsAdmin(request, businessId);
+
+  if (!targetUid) throw new HttpsError('invalid-argument', 'targetUid is required');
+  if (targetUid === actorUser.uid) {
+    throw new HttpsError('permission-denied', 'Administrators cannot remove their own account.');
+  }
+
+  const memberRef = adminDb.doc(`businesses/${businessId}/members/${targetUid}`);
+  const pendingRegRef = adminDb.doc(`businesses/${businessId}/pending_registrations/${targetUid}`);
+  const configRef = adminDb.doc(`businesses/${businessId}/settings/admin_config`);
+  const logId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const logRef = adminDb.doc(`businesses/${businessId}/staff_audit_logs/${logId}`);
+
+  try {
+    const result = await adminDb.runTransaction(async (transaction) => {
+      const memberSnap = await transaction.get(memberRef);
+      if (!memberSnap.exists) {
+        throw new HttpsError('not-found', `Staff member not found for UID: ${targetUid}`);
+      }
+
+      const currentData = memberSnap.data();
+
+      // Primary Admin check
+      const configSnap = await transaction.get(configRef);
+      if (configSnap.exists) {
+        const primaryAdminUid = configSnap.data().primaryAdminUid;
+        if (targetUid === primaryAdminUid) {
+          throw new HttpsError('permission-denied', 'Cannot remove the Primary Administrator.');
+        }
+      }
+
+      // Last Active Admin check
+      if (currentData.role === ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE) {
+        const activeAdminsSnap = await transaction.get(
+          adminDb.collection(`businesses/${businessId}/members`)
+            .where('role', '==', ROLES.ADMIN)
+            .where('status', '==', ACCOUNT_STATUS.ACTIVE)
+        );
+        if (activeAdminsSnap.size <= 1) {
+          throw new HttpsError(
+            'failed-precondition',
+            'Cannot remove the last remaining active Administrator. Please designate another Administrator first.'
+          );
+        }
+      }
+
+      // Read pending registration if present before writes
+      const pendingSnap = await transaction.get(pendingRegRef);
+
+      // Delete member
+      transaction.delete(memberRef);
+
+      // Clean up pending registration if exists
+      if (pendingSnap.exists) {
+        transaction.delete(pendingRegRef);
+      }
+
+      const now = new Date().toISOString();
+      transaction.set(logRef, {
+        id: logId,
+        targetUid,
+        targetEmail: currentData.email,
+        targetName: currentData.displayName || '',
+        action: 'STAFF_REMOVED',
+        previousValue: { role: currentData.role, status: currentData.status },
+        newValue: null,
+        actorUid: actorUser.uid,
+        actorEmail: actorUser.email,
+        timestamp: now,
+        businessId,
+        notes: notes || `Permanently removed staff member (${currentData.displayName || currentData.email}) from project via Cloud Function`,
+      });
+
+      return {
+        success: true,
+        removedUid: targetUid,
+        targetEmail: currentData.email,
+        targetName: currentData.displayName,
+      };
+    });
+
+    // Invalidate refresh tokens on removal
+    try {
+      await adminAuth.revokeRefreshTokens(targetUid);
+    } catch (revokeErr) {
+      console.warn('[removeStaffMemberCallable] revokeRefreshTokens notice:', revokeErr?.message);
+    }
+
+    return result;
+  } catch (err) {
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal', err.message);
+  }
+});
+

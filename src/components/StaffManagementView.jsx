@@ -14,6 +14,7 @@ import {
   Copy,
   Check,
   UserX,
+  UserMinus,
   Mail,
 } from 'lucide-react';
 import { useAuth } from '../context/useAuth';
@@ -33,6 +34,8 @@ import {
   registerStaffMemberDirectly,
   listStaffAuditLogs,
   migrateStaffMemberUid,
+  removeStaffMember,
+  getPrimaryAdminConfig,
 } from '../firebase/services/staffService';
 
 export default function StaffManagementView({ business }) {
@@ -46,6 +49,7 @@ export default function StaffManagementView({ business }) {
   const [staffList, setStaffList] = useState([]);
   const [pendingList, setPendingList] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [primaryAdminUid, setPrimaryAdminUid] = useState(null);
 
   // Loading & Error States
   const [loading, setLoading] = useState(true);
@@ -64,6 +68,7 @@ export default function StaffManagementView({ business }) {
   const [selectedNewRole, setSelectedNewRole] = useState(ROLES.CASHIER);
 
   const [statusModalMember, setStatusModalMember] = useState(null);
+  const [removeModalMember, setRemoveModalMember] = useState(null);
 
   const [approveModalReq, setApproveModalReq] = useState(null);
   const [approveRole, setApproveRole] = useState(ROLES.CASHIER);
@@ -97,14 +102,18 @@ export default function StaffManagementView({ business }) {
    */
   const loadData = useCallback(async () => {
     try {
-      const [members, pending, logs] = await Promise.all([
+      const [members, pending, logs, adminCfg] = await Promise.all([
         listStaffMembers(businessId),
         listPendingRegistrations(businessId),
         listStaffAuditLogs(businessId, 100),
+        getPrimaryAdminConfig(businessId),
       ]);
       setStaffList(members);
       setPendingList(pending);
       setAuditLogs(logs);
+      if (adminCfg?.primaryAdminUid) {
+        setPrimaryAdminUid(adminCfg.primaryAdminUid);
+      }
       setError(null);
     } catch (err) {
       console.error('[StaffManagementView] Failed to load staff data:', err);
@@ -202,6 +211,28 @@ export default function StaffManagementView({ business }) {
     } catch (err) {
       console.error('Status toggle error:', err);
       alert(`Status modification failed: ${err.message}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  /**
+   * Permanent staff removal submission
+   */
+  const handleConfirmRemoval = async () => {
+    if (!removeModalMember) return;
+    setActionLoading(true);
+    try {
+      await removeStaffMember(businessId, removeModalMember.uid, {
+        uid: user.uid,
+        email: user.email,
+      });
+      showToast(`Staff member ${removeModalMember.displayName || removeModalMember.email} has been permanently removed from the project.`);
+      setRemoveModalMember(null);
+      await loadData();
+    } catch (err) {
+      console.error('Staff removal error:', err);
+      alert(`Staff removal failed: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -663,7 +694,7 @@ export default function StaffManagementView({ business }) {
                                   isCurrentUser
                                     ? 'opacity-40 cursor-not-allowed bg-slate-800/40 border-slate-800 text-slate-500'
                                     : isActive
-                                    ? 'bg-red-500/10 hover:bg-red-500/20 text-red-400 border-red-500/30'
+                                    ? 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border-amber-500/30'
                                     : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
                                 }`}
                                 title={
@@ -675,6 +706,28 @@ export default function StaffManagementView({ business }) {
                                 }
                               >
                                 {isActive ? 'Disable' : 'Activate'}
+                              </button>
+
+                              {/* Remove from Project Button */}
+                              <button
+                                type="button"
+                                disabled={isCurrentUser || (primaryAdminUid && st.uid === primaryAdminUid)}
+                                onClick={() => setRemoveModalMember(st)}
+                                className={`px-2 py-1 rounded-lg text-[11px] font-semibold border flex items-center gap-1 transition-colors ${
+                                  isCurrentUser || (primaryAdminUid && st.uid === primaryAdminUid)
+                                    ? 'opacity-40 cursor-not-allowed bg-slate-800/40 border-slate-800 text-slate-500'
+                                    : 'bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-300 border-red-800/60 hover:border-red-600'
+                                }`}
+                                title={
+                                  isCurrentUser
+                                    ? 'You cannot remove your own account'
+                                    : primaryAdminUid && st.uid === primaryAdminUid
+                                    ? 'Primary Administrator cannot be removed'
+                                    : 'Permanently remove staff member from project'
+                                }
+                              >
+                                <UserMinus className="w-3 h-3" />
+                                <span>Remove</span>
                               </button>
                             </div>
                           </td>
@@ -884,6 +937,7 @@ export default function StaffManagementView({ business }) {
                         STAFF_REJECTED: 'bg-red-500/10 text-red-400 border-red-500/20',
                         ROLE_CHANGED: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
                         STATUS_CHANGED: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+                        STAFF_REMOVED: 'bg-red-900/40 text-red-300 border-red-700/50',
                       }[log.action] || 'bg-slate-800 text-slate-300 border-slate-700';
 
                       return (
@@ -1280,6 +1334,99 @@ export default function StaffManagementView({ business }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 6: PERMANENT REMOVE FROM PROJECT MODAL */}
+      {/* ========================================================================= */}
+      {removeModalMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="max-w-md w-full bg-slate-900 border border-red-500/30 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 flex items-center justify-center">
+                <UserMinus className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div>
+                <h3 className="font-bold text-white text-base">Remove from Project</h3>
+                <p className="text-xs text-red-400 font-medium">Permanent Access Revocation</p>
+              </div>
+            </div>
+
+            {/* Target Member Card */}
+            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-bold text-white text-sm">
+                    {removeModalMember.displayName || 'Staff Member'}
+                  </p>
+                  <p className="text-xs text-slate-400">{removeModalMember.email}</p>
+                </div>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                    ROLE_CONFIG[removeModalMember.role]?.badgeColor || 'bg-slate-800 text-slate-300 border-slate-700'
+                  }`}
+                >
+                  {ROLE_CONFIG[removeModalMember.role]?.label || removeModalMember.role}
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-500 font-mono">
+                UID: {removeModalMember.uid}
+              </div>
+            </div>
+
+            {/* Consequences & Clarifications */}
+            <div className="space-y-2.5 text-xs">
+              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-300 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-red-400">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Immediate Access Cutoff</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-red-200/90">
+                  This user will be permanently removed from TPS Battery House. All active session tokens will be revoked and they will immediately lose all read/write permissions.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-300 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-emerald-400">
+                  <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>Google / Firebase Auth Account Preserved</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-slate-400">
+                  Their Google user account is NOT deleted. Only their membership in TPS Battery House is removed.
+                </p>
+              </div>
+
+              <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-300 space-y-1">
+                <div className="flex items-center gap-1.5 font-bold text-blue-400">
+                  <Shield className="w-3.5 h-3.5 shrink-0" />
+                  <span>Historical Data & Audit Trail Intact</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-slate-400">
+                  All past invoices created by this user, transaction receipts, and prior audit logs remain permanently preserved for accounting integrity.
+                </p>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setRemoveModalMember(null)}
+                className="flex-1 py-2 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={handleConfirmRemoval}
+                className="flex-1 py-2 px-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-xs transition-all shadow-md disabled:opacity-50"
+              >
+                {actionLoading ? 'Removing...' : 'Remove Member'}
+              </button>
+            </div>
           </div>
         </div>
       )}

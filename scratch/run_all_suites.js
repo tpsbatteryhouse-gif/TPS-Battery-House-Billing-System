@@ -2,6 +2,7 @@ import { execSync, spawn } from 'child_process';
 import http from 'http';
 
 const suites = [
+  'scratch/test_staff_removal.js',
   'scratch/test_staff_security_hardening.js',
   'scratch/test_google_auth_identity_lifecycle.js',
   'scratch/test_staff_management_integration.js',
@@ -89,7 +90,7 @@ async function main() {
       try {
         const output = execSync(
           `FIRESTORE_EMULATOR_HOST="127.0.0.1:8980" /home/navaneeth/.nvm/versions/node/v24.14.0/bin/node ${suite}`,
-          { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
+          { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
         );
 
         let passCount = 0;
@@ -114,6 +115,8 @@ async function main() {
         console.log(`✓ [${passCount} passed, ${failCount} failed]`);
       } catch (err) {
         console.log(`✗ CRASHED: ${err.message}`);
+        if (err.stderr) console.log(`STDERR:\n${err.stderr}`);
+        if (err.stdout) console.log(`STDOUT:\n${err.stdout}`);
         totalFailed++;
         results.push({ suite, passCount: 0, failCount: 1, status: 'ERROR', error: err.message });
       }

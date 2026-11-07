@@ -28,6 +28,7 @@ import {
   executeStaffApprovalTransaction,
   executeStaffRejectionTransaction,
   executeStaffUidMigrationTransaction,
+  executeStaffRemovalTransaction,
   getPrimaryAdminConfig,
   revokeStaffSession,
 } from './trustedStaffBackend.js';
@@ -38,6 +39,7 @@ export {
   executeStaffApprovalTransaction,
   executeStaffRejectionTransaction,
   executeStaffUidMigrationTransaction,
+  executeStaffRemovalTransaction,
   getPrimaryAdminConfig,
   revokeStaffSession,
 };
@@ -388,6 +390,34 @@ export async function updateStaffStatus(
     } catch (revokeErr) {
       console.warn('[StaffService] revokeStaffSession notice:', revokeErr?.message);
     }
+  }
+
+  return result;
+}
+
+/**
+ * Permanently removes a staff member from the project.
+ * Atomically deletes the membership document, cleans up pending registration records,
+ * and creates an immutable STAFF_REMOVED audit log record.
+ */
+export async function removeStaffMember(
+  businessId = DEFAULT_BUSINESS_ID,
+  uid,
+  adminUser,
+  dbInstance = db,
+  notes = ''
+) {
+  const result = await executeStaffRemovalTransaction(dbInstance, {
+    businessId,
+    targetUid: uid,
+    actorUser: adminUser,
+    notes,
+  });
+
+  try {
+    await revokeStaffSession(null, uid);
+  } catch (revokeErr) {
+    console.warn('[StaffService] revokeStaffSession notice on removal:', revokeErr?.message);
   }
 
   return result;
