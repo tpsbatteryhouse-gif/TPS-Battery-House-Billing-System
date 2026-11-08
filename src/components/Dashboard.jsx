@@ -18,6 +18,9 @@ import {
   Wrench,
   Layers,
   Filter,
+  Calendar,
+  ShieldCheck,
+  ChevronRight,
 } from 'lucide-react';
 import { MOCK_USER, INVOICE_STATUSES } from '../data/mockData';
 import { useAuth } from '../context/useAuth';
@@ -28,6 +31,12 @@ import {
   CATEGORY_CONFIG,
   normalizeInvoiceItem,
 } from '../utils/categories';
+import {
+  calculateDashboardMetrics,
+  DASHBOARD_PERIODS,
+  PERIOD_LABELS,
+  getIndianFinancialYear,
+} from '../utils/dashboardFinancialMetrics';
 
 export default function Dashboard({
   invoices,
@@ -35,6 +44,7 @@ export default function Dashboard({
   onOpenInvoice,
   onViewAllInvoices,
 }) {
+  const [selectedPeriod, setSelectedPeriod] = useState(DASHBOARD_PERIODS.ALL);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -42,79 +52,20 @@ export default function Dashboard({
   const authContext = useAuth();
   const userName = authContext?.member?.displayName || authContext?.user?.displayName || MOCK_USER.name;
 
-  // Compute Dashboard Metrics dynamically from invoice dataset
+  // Compute Authoritative Dashboard Metrics using centralized engine
   const metrics = useMemo(() => {
-    const totalCount = invoices.length;
-    let paidCount = 0;
-    let pendingCount = 0;
-    let overdueCount = 0;
-    let draftCount = 0;
-    let totalRevenue = 0; // Collected cash from settled (Paid) invoices
-    let pendingAmount = 0;
-    let totalBilled = 0;
+    return calculateDashboardMetrics(invoices, { period: selectedPeriod });
+  }, [invoices, selectedPeriod]);
 
-    // Category Sales Distribution (Line-item totals, NO double counting)
-    const categorySales = {
-      [PRODUCT_CATEGORIES.BATTERY]: 0,
-      [PRODUCT_CATEGORIES.INVERTER]: 0,
-      [PRODUCT_CATEGORIES.SOLAR]: 0,
-      [PRODUCT_CATEGORIES.SERVICES]: 0,
-    };
+  // Current Fiscal Year label (e.g. "FY 2026-27")
+  const [currentFyLabel] = useState(() => `FY ${getIndianFinancialYear(new Date())}`);
 
-    invoices.forEach((inv) => {
-      const status = inv.paymentStatus || 'Pending';
-      const amount = Number(inv.netPayable) || 0;
-      totalBilled += amount;
-
-      if (status === INVOICE_STATUSES.PAID) {
-        paidCount++;
-        totalRevenue += amount;
-      } else if (status === INVOICE_STATUSES.PENDING) {
-        pendingCount++;
-        pendingAmount += amount;
-      } else if (status === INVOICE_STATUSES.OVERDUE) {
-        overdueCount++;
-        pendingAmount += amount;
-      } else if (status === INVOICE_STATUSES.DRAFT) {
-        draftCount++;
-      }
-
-      // Compute item-level category sales
-      (inv.items || []).forEach((rawItem) => {
-        const item = normalizeInvoiceItem(rawItem);
-        const cat = item.category || PRODUCT_CATEGORIES.BATTERY;
-        const qty = Math.max(0, Number(item.qty) || 0);
-        const rate = Math.max(0, Number(item.rate) || 0);
-        const isInclusive = Boolean(item.isTaxInclusive);
-        const gstRate = Math.max(0, Number(item.gstRate) || 0);
-
-        let itemTotal = 0;
-        if (isInclusive) {
-          itemTotal = qty * rate;
-        } else {
-          itemTotal = qty * rate * (1 + gstRate / 100);
-        }
-
-        categorySales[cat] = (categorySales[cat] || 0) + itemTotal;
-      });
-    });
-
-    return {
-      totalCount,
-      paidCount,
-      pendingCount,
-      overdueCount,
-      draftCount,
-      totalRevenue,
-      pendingAmount,
-      totalBilled,
-      categorySales,
-    };
-  }, [invoices]);
-
-  // Filter and search invoices (Status + Category + Search Query)
+  // Filter and search invoices for the Recent Invoices table
+  // Synchronized with selected reporting period
   const filteredInvoices = useMemo(() => {
-    return invoices
+    const baseInvoices = metrics.invoices.all;
+
+    return baseInvoices
       .filter((inv) => {
         // Status filter
         if (selectedStatus !== 'All' && inv.paymentStatus !== selectedStatus) {
@@ -150,7 +101,7 @@ export default function Dashboard({
         const dateB = !isNaN(rawB) ? rawB : 0;
         return dateB - dateA;
       });
-  }, [invoices, searchQuery, selectedStatus, selectedCategory]);
+  }, [metrics.invoices.all, searchQuery, selectedStatus, selectedCategory]);
 
   // Status Badge Component
   const renderStatusBadge = (status) => {
@@ -203,12 +154,6 @@ export default function Dashboard({
     }
   };
 
-  const totalCatGross =
-    metrics.categorySales[PRODUCT_CATEGORIES.BATTERY] +
-    metrics.categorySales[PRODUCT_CATEGORIES.INVERTER] +
-    metrics.categorySales[PRODUCT_CATEGORIES.SOLAR] +
-    metrics.categorySales[PRODUCT_CATEGORIES.SERVICES] || 1;
-
   return (
     <div className="space-y-6">
       {/* Welcome Banner */}
@@ -244,13 +189,61 @@ export default function Dashboard({
         </div>
       </section>
 
-      {/* Primary KPI Metrics Summary */}
-      <section aria-label="Dashboard Metrics Summary">
+      {/* Reporting Period Selector Bar */}
+      <section
+        aria-label="Reporting Period Filter"
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/60 border border-slate-800/80 rounded-xl px-4 py-2.5 shadow-sm"
+      >
+        <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+          <Calendar className="w-4 h-4 text-amber-400" />
+          <span>Reporting Period:</span>
+          <span className="text-white font-mono font-bold bg-slate-800/80 px-2 py-0.5 rounded text-[11px]">
+            {selectedPeriod === DASHBOARD_PERIODS.THIS_FY ? currentFyLabel : (PERIOD_LABELS[selectedPeriod] || metrics.periodLabel)}
+          </span>
+        </div>
+
+        <div
+          role="radiogroup"
+          aria-label="Select reporting period"
+          className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 text-xs no-scrollbar"
+        >
+          {[
+            { id: DASHBOARD_PERIODS.ALL, label: 'All Time' },
+            { id: DASHBOARD_PERIODS.THIS_FY, label: currentFyLabel },
+            { id: DASHBOARD_PERIODS.THIS_MONTH, label: 'This Month' },
+            { id: DASHBOARD_PERIODS.THIS_WEEK, label: 'This Week' },
+            { id: DASHBOARD_PERIODS.TODAY, label: 'Today' },
+          ].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="radio"
+              aria-checked={selectedPeriod === item.id}
+              onClick={() => setSelectedPeriod(item.id)}
+              className={`px-3 py-1 rounded-lg font-medium whitespace-nowrap transition-all text-xs ${
+                selectedPeriod === item.id
+                  ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                  : 'bg-slate-950/60 text-slate-400 hover:text-white hover:bg-slate-800/80 border border-slate-800/60'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* Primary Redesigned KPI Metrics Hierarchy */}
+      <section aria-label="Authoritative Financial KPI Hierarchy">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-          {/* Card 1: Total Invoices */}
-          <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-3.5 sm:p-5 transition-all shadow-lg flex flex-col justify-between">
+          {/* Card 1: Total Invoices (Authoritative Issued vs Draft) */}
+          <div
+            onClick={() => setSelectedStatus('All')}
+            className={`bg-slate-900/90 border rounded-2xl p-3.5 sm:p-5 transition-all shadow-lg flex flex-col justify-between cursor-pointer group ${
+              selectedStatus === 'All' ? 'border-blue-500/50 bg-slate-900' : 'border-slate-800 hover:border-slate-700/80'
+            }`}
+          >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider group-hover:text-blue-400 transition-colors">
                 Total Invoices
               </span>
               <div className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
@@ -258,97 +251,190 @@ export default function Dashboard({
               </div>
             </div>
             <div className="mt-2 sm:mt-3">
-              <div className="text-xl sm:text-2xl font-black font-mono text-white tracking-tight">
-                {metrics.totalCount}
+              <div className="text-xl sm:text-2xl font-black font-mono text-white tracking-tight flex items-baseline gap-1.5">
+                <span>{metrics.counts.issuedCount}</span>
+                <span className="text-xs font-normal text-slate-400">issued</span>
               </div>
-              <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5 truncate">
-                {metrics.draftCount > 0 ? `${metrics.draftCount} in draft state` : 'All invoices generated'}
-              </p>
+              <div className="mt-1">
+                {metrics.counts.draftCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedStatus(INVOICE_STATUSES.DRAFT);
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                    title="Filter table by Draft invoices"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                    <span>{metrics.counts.draftCount} draft in progress</span>
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                ) : (
+                  <p className="text-[10px] sm:text-[11px] text-slate-500 truncate">
+                    All invoices finalized
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Card 2: Paid Invoices */}
-          <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-3.5 sm:p-5 transition-all shadow-lg flex flex-col justify-between">
+          {/* Card 2: Collected Revenue (From Settled Paid Invoices) */}
+          <div
+            onClick={() => setSelectedStatus(INVOICE_STATUSES.PAID)}
+            className={`bg-slate-900/90 border rounded-2xl p-3.5 sm:p-5 transition-all shadow-lg flex flex-col justify-between cursor-pointer group ${
+              selectedStatus === INVOICE_STATUSES.PAID ? 'border-emerald-500/50 bg-slate-900' : 'border-slate-800 hover:border-slate-700/80'
+            }`}
+          >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Paid Invoices
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider group-hover:text-emerald-400 transition-colors">
+                Collected Revenue
               </span>
               <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                <CheckCircle2 className="w-4 h-4" />
+                <TrendingUp className="w-4 h-4" />
               </div>
             </div>
             <div className="mt-2 sm:mt-3">
-              <div className="text-xl sm:text-2xl font-black font-mono text-emerald-400 tracking-tight">
-                {metrics.paidCount}
+              <div className="text-xl sm:text-2xl font-black font-mono text-emerald-400 tracking-tight truncate">
+                {formatINR(metrics.financials.collectedRevenue)}
               </div>
-              <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5 truncate">
-                {metrics.totalCount > 0
-                  ? `${Math.round((metrics.paidCount / metrics.totalCount) * 100)}% payment rate`
-                  : '0% completed'}
+              <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1 truncate">
+                <span className="text-white font-semibold font-mono">{metrics.counts.paidCount}</span> settled •{' '}
+                <span className="text-emerald-400 font-mono font-semibold">{metrics.rates.revenueCollectionRate}%</span> collected
               </p>
             </div>
           </div>
 
-          {/* Card 3: Pending Invoices */}
-          <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-3.5 sm:p-5 transition-all shadow-lg flex flex-col justify-between">
+          {/* Card 3: Outstanding Balance (Pending within due terms) */}
+          <div
+            onClick={() => setSelectedStatus(INVOICE_STATUSES.PENDING)}
+            className={`bg-slate-900/90 border rounded-2xl p-3.5 sm:p-5 transition-all shadow-lg flex flex-col justify-between cursor-pointer group ${
+              selectedStatus === INVOICE_STATUSES.PENDING ? 'border-amber-500/50 bg-slate-900' : 'border-slate-800 hover:border-slate-700/80'
+            }`}
+          >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Pending / Overdue
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider group-hover:text-amber-400 transition-colors">
+                Outstanding
               </span>
               <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
                 <Clock className="w-4 h-4" />
               </div>
             </div>
             <div className="mt-2 sm:mt-3">
-              <div className="text-xl sm:text-2xl font-black font-mono text-amber-400 tracking-tight">
-                {metrics.pendingCount + metrics.overdueCount}
+              <div className="text-xl sm:text-2xl font-black font-mono text-amber-400 tracking-tight truncate">
+                {formatINR(metrics.financials.pendingAmount)}
               </div>
-              <p className="text-[10px] sm:text-[11px] text-slate-500 mt-0.5 truncate">
-                {formatINR(metrics.pendingAmount)} uncollected
+              <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1 truncate">
+                <span className="text-white font-semibold font-mono">{metrics.counts.pendingCount}</span> pending within terms
               </p>
             </div>
           </div>
 
-          {/* Card 4: Total Revenue Collected */}
-          <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-3.5 sm:p-5 transition-all shadow-lg flex flex-col justify-between">
+          {/* Card 4: Overdue Debt (Past due date requiring collection) */}
+          <div
+            onClick={() => setSelectedStatus(INVOICE_STATUSES.OVERDUE)}
+            className={`bg-slate-900/90 border rounded-2xl p-3.5 sm:p-5 transition-all shadow-lg flex flex-col justify-between cursor-pointer group ${
+              selectedStatus === INVOICE_STATUSES.OVERDUE ? 'border-rose-500/50 bg-slate-900' : 'border-slate-800 hover:border-slate-700/80'
+            }`}
+          >
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                Collected Revenue
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider group-hover:text-rose-400 transition-colors">
+                Overdue Debt
               </span>
-              <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4" />
+              <div className="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">
+                <AlertTriangle className="w-4 h-4" />
               </div>
             </div>
             <div className="mt-2 sm:mt-3">
-              <div className="text-xl sm:text-2xl font-black font-mono text-white tracking-tight truncate">
-                {formatINR(metrics.totalRevenue)}
+              <div className="text-xl sm:text-2xl font-black font-mono text-rose-400 tracking-tight truncate">
+                {formatINR(metrics.financials.overdueAmount)}
               </div>
-              <p className="text-[10px] sm:text-[11px] text-emerald-400 mt-0.5 truncate">
-                From settled invoices (Paid)
-              </p>
+              <div className="mt-1 flex items-center justify-between gap-1">
+                <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">
+                  <span className="text-white font-semibold font-mono">{metrics.counts.overdueCount}</span> past due date
+                </p>
+                {metrics.counts.overdueCount > 0 && (
+                  <span className="text-[10px] font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
+                    Follow-up
+                  </span>
+                )}
+              </div>
             </div>
+          </div>
+        </div>
+
+        {/* Debt Reconciliation Summary Bar */}
+        <div className="mt-3 bg-slate-950/80 border border-slate-800/80 rounded-xl px-4 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 text-slate-400">
+            <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span>
+              Total Uncollected Debt: <strong className="text-amber-300 font-mono font-bold">{formatINR(metrics.financials.totalOutstanding)}</strong> ({metrics.counts.pendingCount + metrics.counts.overdueCount} invoices)
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-slate-400 font-mono text-[11px]">
+            <span>
+              Authoritative Billed: <strong className="text-white">{formatINR(metrics.financials.totalBilled)}</strong>
+            </span>
+            <span className="text-slate-600">|</span>
+            <span className="text-emerald-400">
+              {metrics.rates.invoicePaymentRate}% Settled ({metrics.counts.paidCount}/{metrics.counts.issuedCount})
+            </span>
           </div>
         </div>
       </section>
 
       {/* Category Business Performance Breakdown (Battery, Inverter, Solar, Services) */}
       <section className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-          <div>
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Layers className="w-4 h-4 text-amber-400" />
-              <span>Category Sales Performance & Revenue Distribution</span>
-            </h2>
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Layers className="w-4 h-4 text-amber-400" />
+                <span>Category Sales Performance & Revenue Distribution</span>
+              </h2>
+            </div>
             <p className="text-xs text-slate-400">
-              Aggregated across all line items (mixed invoices are counted accurately per item without duplication)
+              Pro-rated net revenue per category after scrap buyback and invoice discounts. Reconciles with authoritative billing.
             </p>
           </div>
-          <span className="text-xs font-mono text-slate-400 bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800 self-start sm:self-auto">
-            Total Billed: <strong className="text-white">{formatINR(metrics.totalBilled)}</strong>
-          </span>
+
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            {/* Reconciliation Status Badge */}
+            {metrics.reconciliation.isBalanced ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Reconciled (100% Balanced)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs font-mono text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-lg">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                Discrepancy: {formatINR(metrics.reconciliation.discrepancy)}
+              </span>
+            )}
+
+            <span className="text-xs font-mono text-slate-400 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">
+              Total Billed: <strong className="text-white">{formatINR(metrics.financials.totalBilled)}</strong>
+            </span>
+          </div>
         </div>
 
-        {/* 4 Category Cards */}
+        {/* Invoice Deductions Bridge (if deductions exist) */}
+        {metrics.financials.totalDeductions > 0 && (
+          <div className="bg-slate-950/60 border border-slate-800/80 rounded-xl p-3 text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>Gross Item Subtotal: <strong className="text-slate-200 font-mono">{formatINR(metrics.financials.grossCategoryTotal)}</strong></span>
+              <span className="text-slate-600">•</span>
+              <span>Invoice Deductions (Buyback/Discounts): <strong className="text-amber-400 font-mono">-{formatINR(metrics.financials.totalDeductions)}</strong></span>
+              <span className="text-slate-600">•</span>
+              <span>Net Authoritative Billed: <strong className="text-white font-mono">{formatINR(metrics.financials.totalBilled)}</strong></span>
+            </div>
+            <span className="text-[10px] text-slate-500 font-mono">
+              Pro-rated across categories without residual loss
+            </span>
+          </div>
+        )}
+
+        {/* 4 Reconciled Category Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {/* Battery */}
           <div className="bg-slate-950/70 border border-amber-500/20 rounded-xl p-3.5 flex flex-col justify-between">
@@ -357,13 +443,13 @@ export default function Dashboard({
                 <BatteryCharging className="w-3.5 h-3.5" />
                 Battery Sales
               </span>
-              <span className="text-[10px] font-mono text-slate-500">
-                {Math.round((metrics.categorySales[PRODUCT_CATEGORIES.BATTERY] / totalCatGross) * 100)}%
+              <span className="text-[10px] font-mono text-slate-400 font-bold">
+                {metrics.categories.percentages[PRODUCT_CATEGORIES.BATTERY]}%
               </span>
             </div>
             <div className="mt-2">
               <div className="text-lg font-black font-mono text-white">
-                {formatINR(metrics.categorySales[PRODUCT_CATEGORIES.BATTERY])}
+                {formatINR(metrics.categories.net[PRODUCT_CATEGORIES.BATTERY])}
               </div>
               <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
                 <div
@@ -371,7 +457,7 @@ export default function Dashboard({
                   style={{
                     width: `${Math.min(
                       100,
-                      Math.round((metrics.categorySales[PRODUCT_CATEGORIES.BATTERY] / totalCatGross) * 100)
+                      metrics.categories.percentages[PRODUCT_CATEGORIES.BATTERY]
                     )}%`,
                   }}
                 ></div>
@@ -386,13 +472,13 @@ export default function Dashboard({
                 <Zap className="w-3.5 h-3.5" />
                 Inverter Sales
               </span>
-              <span className="text-[10px] font-mono text-slate-500">
-                {Math.round((metrics.categorySales[PRODUCT_CATEGORIES.INVERTER] / totalCatGross) * 100)}%
+              <span className="text-[10px] font-mono text-slate-400 font-bold">
+                {metrics.categories.percentages[PRODUCT_CATEGORIES.INVERTER]}%
               </span>
             </div>
             <div className="mt-2">
               <div className="text-lg font-black font-mono text-white">
-                {formatINR(metrics.categorySales[PRODUCT_CATEGORIES.INVERTER])}
+                {formatINR(metrics.categories.net[PRODUCT_CATEGORIES.INVERTER])}
               </div>
               <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
                 <div
@@ -400,7 +486,7 @@ export default function Dashboard({
                   style={{
                     width: `${Math.min(
                       100,
-                      Math.round((metrics.categorySales[PRODUCT_CATEGORIES.INVERTER] / totalCatGross) * 100)
+                      metrics.categories.percentages[PRODUCT_CATEGORIES.INVERTER]
                     )}%`,
                   }}
                 ></div>
@@ -415,13 +501,13 @@ export default function Dashboard({
                 <Sun className="w-3.5 h-3.5" />
                 Solar Sales
               </span>
-              <span className="text-[10px] font-mono text-slate-500">
-                {Math.round((metrics.categorySales[PRODUCT_CATEGORIES.SOLAR] / totalCatGross) * 100)}%
+              <span className="text-[10px] font-mono text-slate-400 font-bold">
+                {metrics.categories.percentages[PRODUCT_CATEGORIES.SOLAR]}%
               </span>
             </div>
             <div className="mt-2">
               <div className="text-lg font-black font-mono text-white">
-                {formatINR(metrics.categorySales[PRODUCT_CATEGORIES.SOLAR])}
+                {formatINR(metrics.categories.net[PRODUCT_CATEGORIES.SOLAR])}
               </div>
               <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
                 <div
@@ -429,7 +515,7 @@ export default function Dashboard({
                   style={{
                     width: `${Math.min(
                       100,
-                      Math.round((metrics.categorySales[PRODUCT_CATEGORIES.SOLAR] / totalCatGross) * 100)
+                      metrics.categories.percentages[PRODUCT_CATEGORIES.SOLAR]
                     )}%`,
                   }}
                 ></div>
@@ -444,13 +530,13 @@ export default function Dashboard({
                 <Wrench className="w-3.5 h-3.5" />
                 Service Revenue
               </span>
-              <span className="text-[10px] font-mono text-slate-500">
-                {Math.round((metrics.categorySales[PRODUCT_CATEGORIES.SERVICES] / totalCatGross) * 100)}%
+              <span className="text-[10px] font-mono text-slate-400 font-bold">
+                {metrics.categories.percentages[PRODUCT_CATEGORIES.SERVICES]}%
               </span>
             </div>
             <div className="mt-2">
               <div className="text-lg font-black font-mono text-white">
-                {formatINR(metrics.categorySales[PRODUCT_CATEGORIES.SERVICES])}
+                {formatINR(metrics.categories.net[PRODUCT_CATEGORIES.SERVICES])}
               </div>
               <div className="w-full bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
                 <div
@@ -458,7 +544,7 @@ export default function Dashboard({
                   style={{
                     width: `${Math.min(
                       100,
-                      Math.round((metrics.categorySales[PRODUCT_CATEGORIES.SERVICES] / totalCatGross) * 100)
+                      metrics.categories.percentages[PRODUCT_CATEGORIES.SERVICES]
                     )}%`,
                   }}
                 ></div>
@@ -586,21 +672,22 @@ export default function Dashboard({
               <p className="text-xs text-slate-400 max-w-sm mx-auto">
                 {searchQuery || selectedStatus !== 'All' || selectedCategory !== 'All'
                   ? `No invoices matched your filter (${selectedStatus}, Category: ${selectedCategory}) or query "${searchQuery}".`
-                  : 'Get started by creating your first invoice for TPS BATTERYS HOUSE.'}
+                  : `No invoices recorded for ${selectedPeriod === DASHBOARD_PERIODS.THIS_FY ? currentFyLabel : (PERIOD_LABELS[selectedPeriod] || metrics.periodLabel)}.`}
               </p>
             </div>
             <div className="pt-1 flex items-center justify-center gap-2">
-              {(searchQuery || selectedStatus !== 'All' || selectedCategory !== 'All') && (
+              {(searchQuery || selectedStatus !== 'All' || selectedCategory !== 'All' || selectedPeriod !== DASHBOARD_PERIODS.ALL) && (
                 <button
                   type="button"
                   onClick={() => {
                     setSearchQuery('');
                     setSelectedStatus('All');
                     setSelectedCategory('All');
+                    setSelectedPeriod(DASHBOARD_PERIODS.ALL);
                   }}
                   className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 rounded-lg transition-colors"
                 >
-                  Clear Filters
+                  Clear All Filters
                 </button>
               )}
               <button

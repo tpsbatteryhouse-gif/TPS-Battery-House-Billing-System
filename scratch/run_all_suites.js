@@ -28,6 +28,7 @@ const suites = [
   'scratch/test_financial_calculation_signoff.mjs',
   'scratch/test_phase_6b_vulnerabilities.mjs',
   'scratch/test_phase_6b1_targeted_verification.mjs',
+  'scratch/test_dashboard_financial_metrics.mjs',
 ];
 
 function checkEmulatorRunning() {

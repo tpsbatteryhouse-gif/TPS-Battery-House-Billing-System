@@ -350,4 +350,5 @@ export const INVOICE_STATUSES = {
   PENDING: 'Pending',
   OVERDUE: 'Overdue',
   DRAFT: 'Draft',
+  CANCELLED: 'Cancelled',
 };
