@@ -103,6 +103,9 @@ export async function recoverPrimaryAdminConfig(
     const liveConfigSnap = await transaction.get(configRef);
     const livePrevious = liveConfigSnap.exists ? liveConfigSnap.data() : null;
 
+    const guardRef = adminDb.doc(`businesses/${businessId}/settings/admin_guard`);
+    const guardSnap = await transaction.get(guardRef);
+
     const newConfig = {
       primaryAdminUid: newPrimaryAdminUid,
       primaryAdminEmail: primaryEmail,
@@ -114,11 +117,19 @@ export async function recoverPrimaryAdminConfig(
 
     transaction.set(configRef, newConfig);
 
+    if (guardSnap.exists) {
+      transaction.update(guardRef, {
+        lastSequence: (guardSnap.data().lastSequence || 0) + 1,
+        updatedAt: nowIso,
+        updatedBy: authorizedOperatorUid,
+      });
+    }
+
     transaction.set(logRef, {
       id: logId,
       targetUid: newPrimaryAdminUid,
       targetEmail: primaryEmail,
-      targetName: memberData.displayName || 'Primary Administrator',
+      targetName: memberData.displayName || memberData.name || 'Primary Administrator',
       action: 'ROLE_CHANGED',
       previousValue: livePrevious ? { primaryAdminUid: livePrevious.primaryAdminUid } : null,
       newValue: { primaryAdminUid: newPrimaryAdminUid, role: ROLES.ADMIN },
@@ -159,14 +170,18 @@ async function runCli() {
   const dryRun = hasFlag('--dry-run');
   const confirmed = hasFlag('--confirm');
 
-  if (hasFlag('--help') || !newAdminUid) {
+  if (hasFlag('--help') || !newAdminUid || !projectId) {
+    if (!hasFlag('--help')) {
+      if (!projectId) console.error('ERROR: --project <projectId> is required.');
+      if (!newAdminUid) console.error('ERROR: --new-admin-uid <uid> is required.');
+    }
     console.log(`
 TPS Battery House — Primary Administrator Recovery CLI
 Usage:
   node scripts/recover-primary-admin.js [options]
 
 Options:
-  --project <projectId>       Firebase Project ID (required or via GCLOUD_PROJECT)
+  --project <projectId>       Firebase Project ID (required)
   --business-id <id>          Target business ID (default: tps-battery-house)
   --new-admin-uid <uid>       Target UID of the active administrator to designate (required)
   --operator-uid <uid>        Operator performing recovery (default: system user)

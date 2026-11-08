@@ -384,11 +384,12 @@ export async function createInvoiceWithCounter(
 
   // 2. Non-draft invoice (or draft with established number): allocate sequential number via transaction
   // Wrapped in a jittered retry loop to resolve concurrent counter contention gracefully
-  const maxAttempts = 3;
+  const maxAttempts = 8;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       return await runTransaction(firestoreDb, async (transaction) => {
         const counterSnap = await transaction.get(counterRef);
+        const legacySnap = await transaction.get(legacyCounterRef);
         let nextSeq = 1;
 
         if (counterSnap.exists()) {
@@ -397,7 +398,6 @@ export async function createInvoiceWithCounter(
           nextSeq = currentSeq + 1;
         } else {
           // If counter is not initialized, check legacy counter fallback
-          const legacySnap = await transaction.get(legacyCounterRef);
           if (legacySnap.exists() && legacySnap.data().prefix === prefix) {
             nextSeq = (Number(legacySnap.data().lastSeq) || 0) + 1;
           } else {
@@ -472,7 +472,9 @@ export async function createInvoiceWithCounter(
         };
 
         transaction.set(counterRef, counterData, { merge: true });
-        transaction.set(legacyCounterRef, counterData, { merge: true });
+        if (legacySnap.exists() && legacySnap.data().prefix === prefix) {
+          transaction.set(legacyCounterRef, counterData, { merge: true });
+        }
         transaction.set(reservationRef, reservationData);
         transaction.set(invoiceDocRef, sanitized);
 

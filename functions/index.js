@@ -562,7 +562,8 @@ export const migrateStaffMemberUidCallable = onCall(async (request) => {
       const newPayload = {
         uid: newUid,
         email: oldData.email,
-        displayName: oldData.displayName,
+        name: oldData.name || oldData.displayName || '',
+        displayName: oldData.displayName || oldData.name || '',
         role: oldData.role,
         status: oldData.status,
         createdAt: oldData.createdAt || now,

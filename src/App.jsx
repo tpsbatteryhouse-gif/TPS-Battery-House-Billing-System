@@ -31,7 +31,6 @@ import {
   inferTransactionType,
   normalizeInvoiceItem,
 } from './utils/categories';
-import { downloadInvoicePdf } from './utils/pdfExport';
 import { calculateInvoiceTotals } from './utils/gstCalculations';
 import { formatINR } from './utils/numberToWords';
 import { AuthProvider } from './context/AuthContext';
@@ -366,10 +365,11 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     window.print();
   };
 
-  // Download PDF
+  // Download PDF (lazy loads html2canvas and jsPDF on demand)
   const handleDownloadPdf = async () => {
     setIsPdfGenerating(true);
     try {
+      const { downloadInvoicePdf } = await import('./utils/pdfExport.js');
       await downloadInvoicePdf(
         'invoice-printable',
         invoice.invoiceNumber,
