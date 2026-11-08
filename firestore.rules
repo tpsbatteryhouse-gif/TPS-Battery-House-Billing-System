@@ -883,6 +883,7 @@ service cloud.firestore {
                             ('newValue' in request.resource.data) &&
                             request.resource.data.newValue is map &&
                             ('role' in request.resource.data.newValue) &&
+                            !exists(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)) &&
                             existsAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)) &&
                             getAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)).data.role == request.resource.data.newValue.role) ||
                            (request.resource.data.action == 'STAFF_REJECTED' &&
