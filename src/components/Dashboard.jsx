@@ -183,7 +183,7 @@ export default function Dashboard({
               className="w-full sm:w-auto px-4 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-lg shadow-amber-500/20 active:scale-95 group"
             >
               <Plus className="w-4 h-4 stroke-[3] group-hover:rotate-90 transition-transform" />
-              <span>+ New Invoice</span>
+              <span>New Invoice</span>
             </button>
           </div>
         </div>

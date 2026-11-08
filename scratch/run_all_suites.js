@@ -29,6 +29,8 @@ const suites = [
   'scratch/test_phase_6b_vulnerabilities.mjs',
   'scratch/test_phase_6b1_targeted_verification.mjs',
   'scratch/test_dashboard_financial_metrics.mjs',
+  'scratch/test_invoice_screen_integration.mjs',
+  'scratch/test_navigation_wiring.mjs',
 ];
 
 function checkEmulatorRunning() {

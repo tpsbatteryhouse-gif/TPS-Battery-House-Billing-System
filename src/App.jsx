@@ -1,19 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Printer,
-  Download,
-  Share2,
-  Eye,
-  Edit3,
-  Columns,
-  CheckCircle,
-  Loader2,
-  ArrowLeft,
-} from 'lucide-react';
+import { CheckCircle, Edit3, Download } from 'lucide-react';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import AllInvoicesView from './components/AllInvoicesView';
-import QuickCreateInvoiceModal from './components/QuickCreateInvoiceModal';
 import UserProfileModal from './components/UserProfileModal';
 import FloatingActionButton from './components/FloatingActionButton';
 import InvoiceForm from './components/InvoiceForm';
@@ -95,7 +84,6 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
   } = useCustomers(DEFAULT_BUSINESS_ID);
 
   // UI Modal & Control States
-  const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
@@ -147,34 +135,6 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
 
   // Calculate totals for active invoice in editor
   const totals = calculateInvoiceTotals(invoice, business.stateCode || '32');
-
-  // Handle Quick Create Save
-  const handleSaveQuickInvoice = async (newInvoice) => {
-    try {
-      const txType = inferTransactionType(newInvoice);
-      const normalizedItems = (newInvoice.items || []).map((item) => normalizeInvoiceItem(item));
-      const invWithItems = {
-        ...newInvoice,
-        items: normalizedItems,
-      };
-      const quickTotals = calculateInvoiceTotals(invWithItems, business.stateCode || '32');
-
-      const invoiceToSave = {
-        ...invWithItems,
-        id: newInvoice.id || ('inv-' + Date.now()),
-        transactionType: txType,
-        netPayable: quickTotals.netPayable,
-        savedAt: new Date().toISOString(),
-      };
-
-      const saved = await saveInvoice(invoiceToSave);
-      setInvoices((prev) => [saved, ...prev.filter((i) => i.id !== saved.id && i.invoiceNumber !== saved.invoiceNumber)]);
-      showToast(`Invoice ${saved.invoiceNumber} created successfully!`);
-    } catch (err) {
-      console.error('Failed to save quick invoice:', err);
-      showToast(`Error saving invoice: ${err.message}`);
-    }
-  };
 
   // Handle Opening an Invoice from Dashboard / List into Full Generator
   const handleOpenInvoiceInEditor = (inv) => {
@@ -278,19 +238,36 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     };
 
     setInvoice(freshInvoice);
-    setIsQuickCreateOpen(true);
+    setActiveView('editor');
+    setEditorMode('edit');
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  // Safe In-place Reset with confirmation
+  const handleResetInvoice = () => {
+    if (
+      window.confirm(
+        'Reset this invoice form? All unsaved line items and customer information will be cleared.'
+      )
+    ) {
+      handleStartNewInvoice();
+    }
   };
 
   // Handle Saving bill from within the Full GST Billing Studio
-  const handleSaveInvoiceInEditor = async () => {
+  const handleSaveInvoiceInEditor = async (statusOverride = null) => {
     try {
       const stableId = invoice.id || ('inv-' + Date.now());
       const txType = inferTransactionType(invoice);
       const normalizedItems = (invoice.items || []).map((item) => normalizeInvoiceItem(item));
+      const paymentStatus = (typeof statusOverride === 'string' && statusOverride) || invoice.paymentStatus || 'Pending';
 
       const invoiceToSave = {
         ...invoice,
         id: stableId,
+        paymentStatus,
         transactionType: txType,
         items: normalizedItems,
         scrapExchange: {
@@ -431,6 +408,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
       <Header
         activeView={activeView}
         setActiveView={setActiveView}
+        onNewInvoice={handleStartNewInvoice}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenProfile={() => setIsProfileOpen(true)}
         onSignOut={signOutUser}
@@ -469,125 +447,6 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
             {/* VIEW 3: FULL GST TAX BILL GENERATOR & DEDICATED PREVIEW */}
             {activeView === 'editor' && (
               <div className="space-y-4">
-                {/* Editor Sub-Header: Back to Dashboard & Bill Actions */}
-                <div className="bg-slate-900 border border-slate-800 p-3 sm:px-4 rounded-xl shadow-lg flex flex-wrap items-center justify-between gap-3 no-print">
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setActiveView('dashboard')}
-                      className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border border-slate-700"
-                    >
-                      <ArrowLeft className="w-3.5 h-3.5" />
-                      <span>Back to Dashboard</span>
-                    </button>
-                    <div className="text-xs text-slate-400">
-                      Invoice: <span className="font-mono font-bold text-white">{invoice.invoiceNumber}</span>
-                    </div>
-                    {/* Transaction Classification Badge */}
-                    <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                      {invoice.transactionType || inferTransactionType(invoice)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {/* Dedicated Mode Switcher */}
-                    <div className="flex bg-slate-800 p-0.5 rounded-lg border border-slate-700 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditorMode('edit');
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                        className={`px-3 py-1.5 rounded flex items-center gap-1.5 font-medium transition-colors ${
-                          editorMode === 'edit'
-                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                            : 'text-slate-300 hover:text-white'
-                        }`}
-                        title="Full-Width Invoice Editor"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                        <span>Editor</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditorMode('preview');
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                        className={`px-3 py-1.5 rounded flex items-center gap-1.5 font-medium transition-colors ${
-                          editorMode === 'preview'
-                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                            : 'text-slate-300 hover:text-white'
-                        }`}
-                        title="Dedicated A4 Invoice Preview"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Preview Invoice</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditorMode('split');
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                        className={`px-2.5 py-1.5 rounded hidden xl:flex items-center gap-1.5 font-medium transition-colors ${
-                          editorMode === 'split'
-                            ? 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                            : 'text-slate-300 hover:text-white'
-                        }`}
-                        title="Side-by-Side Split View"
-                      >
-                        <Columns className="w-3.5 h-3.5" />
-                        <span>Split</span>
-                      </button>
-                    </div>
-
-                    {/* WhatsApp */}
-                    <button
-                      type="button"
-                      onClick={handleShareWhatsApp}
-                      className="px-2.5 py-1.5 text-xs font-semibold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 rounded-lg flex items-center gap-1.5 transition-colors"
-                      title="Share bill on WhatsApp"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">WhatsApp</span>
-                    </button>
-
-                    {/* Print */}
-                    <button
-                      type="button"
-                      onClick={handlePrint}
-                      className="px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
-                      title="Print A4 bill"
-                    >
-                      <Printer className="w-3.5 h-3.5 text-amber-400" />
-                      <span className="hidden sm:inline">Print</span>
-                    </button>
-
-                    {/* PDF Download */}
-                    <button
-                      type="button"
-                      onClick={handleDownloadPdf}
-                      disabled={isPdfGenerating}
-                      className="px-3.5 py-1.5 text-xs font-bold text-slate-950 bg-amber-500 hover:bg-amber-400 rounded-lg flex items-center gap-1.5 transition-all shadow-md disabled:opacity-50"
-                    >
-                      {isPdfGenerating ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Generating...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Download PDF</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
                 {/* MODE 1: DEDICATED FULL-WIDTH INVOICE EDITOR (DEFAULT) */}
                 {editorMode === 'edit' && (
                   <div className="w-full no-print">
@@ -598,8 +457,9 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                       customers={customers}
                       business={business}
                       onSave={handleSaveInvoiceInEditor}
-                      onReset={handleStartNewInvoice}
+                      onReset={handleResetInvoice}
                       onLoadSample={handleLoadSample}
+                      onBackToDashboard={() => setActiveView('dashboard')}
                       isSaved={isSavedFeedback}
                       onPreview={() => {
                         setEditorMode('preview');
@@ -608,6 +468,8 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                       onPrint={handlePrint}
                       onDownloadPdf={handleDownloadPdf}
                       isPdfGenerating={isPdfGenerating}
+                      onShareWhatsApp={handleShareWhatsApp}
+                      onOpenSettings={() => setIsSettingsOpen(true)}
                     />
                   </div>
                 )}
@@ -728,6 +590,8 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                         onPrint={handlePrint}
                         onDownloadPdf={handleDownloadPdf}
                         isPdfGenerating={isPdfGenerating}
+                        onShareWhatsApp={handleShareWhatsApp}
+                        onOpenSettings={() => setIsSettingsOpen(true)}
                       />
                     </div>
 
@@ -833,52 +697,6 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
             visible={activeView !== 'editor'}
             onClick={handleStartNewInvoice}
           />
-
-          {/* Quick Create Invoice Modal */}
-          {isQuickCreateOpen && (
-            <QuickCreateInvoiceModal
-              key={`quick-modal-${getNextInvoiceNumber()}`}
-              isOpen={isQuickCreateOpen}
-              onClose={() => setIsQuickCreateOpen(false)}
-              onSaveInvoice={handleSaveQuickInvoice}
-              onOpenInFullGenerator={(formData) => {
-                if (formData) {
-                  const txType = formData.transactionType || (formData.customerGstin?.trim() ? TRANSACTION_TYPES.B2B : TRANSACTION_TYPES.B2C);
-                  const items = (formData.items || []).map((it) =>
-                    normalizeInvoiceItem({
-                      id: it.id || ('item-' + Date.now()),
-                      name: it.description || '',
-                      category: it.category || PRODUCT_CATEGORIES.BATTERY,
-                      hsn: it.hsn || (CATEGORY_CONFIG[it.category]?.defaultHsn || '8507'),
-                      qty: Number(it.qty) || 1,
-                      unit: it.unit || 'Nos',
-                      rate: Number(it.unitPrice) || 0,
-                      isTaxInclusive: true,
-                      gstRate: Number(it.gstRate) || (CATEGORY_CONFIG[it.category]?.defaultGstRate || 28),
-                    })
-                  );
-
-                  setInvoice((prev) => ({
-                    ...prev,
-                    invoiceNumber: formData.invoiceNumber || prev.invoiceNumber,
-                    invoiceDate: formData.invoiceDate || prev.invoiceDate,
-                    dueDate: formData.dueDate || prev.dueDate,
-                    transactionType: txType,
-                    customer: {
-                      ...prev.customer,
-                      name: formData.customerName || prev.customer?.name || '',
-                      phone: formData.customerPhone || prev.customer?.phone || '',
-                      gstin: formData.customerGstin || prev.customer?.gstin || '',
-                    },
-                    items: items.length > 0 ? items : prev.items,
-                  }));
-                }
-                setActiveView('editor');
-              }}
-              nextInvoiceNumber={getNextInvoiceNumber()}
-              customers={customers}
-            />
-          )}
 
           {/* User Profile Modal */}
           <UserProfileModal
