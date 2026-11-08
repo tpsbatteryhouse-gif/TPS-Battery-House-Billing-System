@@ -30,6 +30,7 @@ import {
   executeStaffUidMigrationTransaction,
   executeStaffRemovalTransaction,
   getPrimaryAdminConfig,
+  getOrInitAdminGuard,
   revokeStaffSession,
 } from './trustedStaffBackend.js';
 
@@ -322,8 +323,21 @@ export async function registerStaffMemberDirectly(
   };
 
   await runTransaction(dbInstance, async (transaction) => {
+    let guard = null;
+    if (role === ROLES.ADMIN) {
+      guard = await getOrInitAdminGuard(transaction, dbInstance, businessId, 1);
+    }
     transaction.set(memberRef, payload);
     transaction.set(logRef, auditPayload);
+    if (guard) {
+      transaction.set(guard.ref, {
+        id: 'admin_guard',
+        activeAdminCount: guard.activeAdminCount + 1,
+        lastSequence: guard.lastSequence + 1,
+        updatedAt: now,
+        updatedBy: adminUser.uid,
+      }, { merge: true });
+    }
   });
 
   return payload;
@@ -457,8 +471,12 @@ export async function listStaffAuditLogs(
     const logs = [];
 
     snap.forEach((docSnap) => {
+      const data = docSnap.data();
+      const rawTimestamp = data.timestamp;
+      const isoTimestamp = rawTimestamp?.toDate ? rawTimestamp.toDate().toISOString() : rawTimestamp;
       logs.push({
-        ...docSnap.data(),
+        ...data,
+        timestamp: isoTimestamp,
         id: docSnap.id,
       });
     });
@@ -472,8 +490,12 @@ export async function listStaffAuditLogs(
       const snap = await getDocs(logsRef);
       const logs = [];
       snap.forEach((docSnap) => {
+        const data = docSnap.data();
+        const rawTimestamp = data.timestamp;
+        const isoTimestamp = rawTimestamp?.toDate ? rawTimestamp.toDate().toISOString() : rawTimestamp;
         logs.push({
-          ...docSnap.data(),
+          ...data,
+          timestamp: isoTimestamp,
           id: docSnap.id,
         });
       });

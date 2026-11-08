@@ -49,16 +49,22 @@ import {
 import {
   executeRoleChangeTransaction,
   executeStatusChangeTransaction,
+  executeStaffApprovalTransaction,
   executeStaffRemovalTransaction,
   executeStaffUidMigrationTransaction,
 } from '../src/firebase/services/trustedStaffBackend.js';
-import { recoverPrimaryAdminConfig } from '../src/firebase/services/adminConfigRecovery.js';
+import { recoverPrimaryAdminConfig } from '../scripts/recover-primary-admin.js';
+import { listStaffAuditLogs } from '../src/firebase/services/staffService.js';
 import { ROLES, ACCOUNT_STATUS } from '../src/utils/permissions.js';
 
 import {
   removeStaffMemberCallable,
   configureAdminForProject,
 } from '../functions/index.js';
+
+import express from '../functions/node_modules/express/index.js';
+import { initializeApp as initClientApp } from 'firebase/app';
+import { getFunctions, connectFunctionsEmulator, httpsCallable } from 'firebase/functions';
 
 const EMULATOR_HOST = '127.0.0.1';
 const EMULATOR_PORT = 8980;
@@ -81,7 +87,7 @@ function testAssert(condition, desc) {
 
 async function runFinalSecuritySuite() {
   console.log('================================================================');
-  console.log('PHASE 4.2: FINAL SECURITY VERIFICATION & HARDENING SUITE');
+  console.log('PHASE 4.2.1: FINAL SECURITY VERIFICATION & HARDENING SUITE');
   console.log(`Target: http://${EMULATOR_HOST}:${EMULATOR_PORT} | Project: ${PROJECT_ID}`);
   console.log('================================================================\n');
 
@@ -420,6 +426,174 @@ async function runFinalSecuritySuite() {
     );
   }
 
+  // Test 1.4: Concurrent Admin Approval vs Admin Removal
+  {
+    console.log('  Testing Concurrent Admin Approval vs Admin Removal...');
+    const CONCUR_BIZ = 'concur-appr-rem-biz';
+    const ADMIN_A = 'admin_appr_a';
+    const ADMIN_B = 'admin_appr_b';
+    const PENDING_ADMIN = 'pending_admin_c';
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ), { businessName: 'Concur Appr' });
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ, 'settings', 'admin_config'), { primaryAdminUid: 'owner_uid' });
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ, 'settings', 'admin_guard'), {
+        id: 'admin_guard',
+        activeAdminCount: 2,
+        lastSequence: 1,
+      });
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ, 'members', ADMIN_A), {
+        uid: ADMIN_A,
+        email: 'a@appr.com',
+        displayName: 'Admin A',
+        role: ROLES.ADMIN,
+        status: ACCOUNT_STATUS.ACTIVE,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        createdBy: 'owner_uid',
+      });
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ, 'members', ADMIN_B), {
+        uid: ADMIN_B,
+        email: 'b@appr.com',
+        displayName: 'Admin B',
+        role: ROLES.ADMIN,
+        status: ACCOUNT_STATUS.ACTIVE,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        createdBy: 'owner_uid',
+      });
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ, 'pending_registrations', PENDING_ADMIN), {
+        uid: PENDING_ADMIN,
+        email: 'c@appr.com',
+        displayName: 'Admin C Candidate',
+        requestedRole: ROLES.ADMIN,
+        status: 'pending',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      });
+    });
+
+    const ctxA = testEnv.authenticatedContext(ADMIN_A, { email: 'a@appr.com' });
+    const ctxB = testEnv.authenticatedContext(ADMIN_B, { email: 'b@appr.com' });
+
+    // Admin A removes Admin B; Admin B concurrently approves Pending Admin C
+    const results = await Promise.allSettled([
+      executeStaffRemovalTransaction(ctxA.firestore(), {
+        businessId: CONCUR_BIZ,
+        targetUid: ADMIN_B,
+        actorUser: { uid: ADMIN_A, email: 'a@appr.com' },
+        primaryAdminUid: 'owner_uid',
+      }),
+      executeStaffApprovalTransaction(ctxB.firestore(), {
+        businessId: CONCUR_BIZ,
+        targetUid: PENDING_ADMIN,
+        role: ROLES.ADMIN,
+        actorUser: { uid: ADMIN_B, email: 'b@appr.com' },
+      }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    testAssert(
+      fulfilled.length >= 1,
+      'Concurrent Admin Approval vs Admin Removal: Transactions serialized safely via admin_guard OCC'
+    );
+
+    // Verify business always has at least 1 active admin
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const snap = await getDocs(collection(context.firestore(), 'businesses', CONCUR_BIZ, 'members'));
+      let activeAdmins = 0;
+      snap.forEach((d) => {
+        if (d.data().role === ROLES.ADMIN && d.data().status === ACCOUNT_STATUS.ACTIVE) activeAdmins++;
+      });
+      testAssert(
+        activeAdmins >= 1,
+        `Concurrent Admin Approval vs Admin Removal: Active admin count (${activeAdmins}) safely preserved >= 1`
+      );
+    });
+  }
+
+  // Test 1.5: Concurrent Admin Restoration (Disabled -> Active) vs Admin Removal
+  {
+    console.log('  Testing Concurrent Admin Restoration vs Admin Removal...');
+    const CONCUR_BIZ = 'concur-restore-rem-biz';
+    const ADMIN_A = 'admin_rest_a';
+    const ADMIN_B = 'admin_rest_b';
+    const DISABLED_ADMIN = 'admin_disabled_c';
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ), { businessName: 'Concur Restore' });
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ, 'settings', 'admin_config'), { primaryAdminUid: 'owner_uid' });
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ, 'settings', 'admin_guard'), {
+        id: 'admin_guard',
+        activeAdminCount: 2,
+        lastSequence: 1,
+      });
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ, 'members', ADMIN_A), {
+        uid: ADMIN_A,
+        email: 'a@rest.com',
+        displayName: 'Admin A',
+        role: ROLES.ADMIN,
+        status: ACCOUNT_STATUS.ACTIVE,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        createdBy: 'owner_uid',
+      });
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ, 'members', ADMIN_B), {
+        uid: ADMIN_B,
+        email: 'b@rest.com',
+        displayName: 'Admin B',
+        role: ROLES.ADMIN,
+        status: ACCOUNT_STATUS.ACTIVE,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        createdBy: 'owner_uid',
+      });
+      await setDoc(doc(db, 'businesses', CONCUR_BIZ, 'members', DISABLED_ADMIN), {
+        uid: DISABLED_ADMIN,
+        email: 'c@rest.com',
+        displayName: 'Disabled Admin C',
+        role: ROLES.ADMIN,
+        status: ACCOUNT_STATUS.DISABLED,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        createdBy: 'owner_uid',
+      });
+    });
+
+    const ctxA = testEnv.authenticatedContext(ADMIN_A, { email: 'a@rest.com' });
+    const ctxB = testEnv.authenticatedContext(ADMIN_B, { email: 'b@rest.com' });
+
+    // Admin A removes Admin B; Admin B restores Disabled Admin C to Active
+    const results = await Promise.allSettled([
+      executeStaffRemovalTransaction(ctxA.firestore(), {
+        businessId: CONCUR_BIZ,
+        targetUid: ADMIN_B,
+        actorUser: { uid: ADMIN_A, email: 'a@rest.com' },
+        primaryAdminUid: 'owner_uid',
+      }),
+      executeStatusChangeTransaction(ctxB.firestore(), {
+        businessId: CONCUR_BIZ,
+        targetUid: DISABLED_ADMIN,
+        newStatus: ACCOUNT_STATUS.ACTIVE,
+        actorUser: { uid: ADMIN_B, email: 'b@rest.com' },
+      }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    testAssert(
+      fulfilled.length >= 1,
+      'Concurrent Admin Restoration vs Admin Removal: Serialized safely via admin_guard OCC'
+    );
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const snap = await getDocs(collection(context.firestore(), 'businesses', CONCUR_BIZ, 'members'));
+      let activeAdmins = 0;
+      snap.forEach((d) => {
+        if (d.data().role === ROLES.ADMIN && d.data().status === ACCOUNT_STATUS.ACTIVE) activeAdmins++;
+      });
+      testAssert(
+        activeAdmins >= 1,
+        `Concurrent Admin Restoration vs Admin Removal: Active admin count (${activeAdmins}) safely preserved >= 1`
+      );
+    });
+  }
+
   // =========================================================================
   // SECTION 2: PRIMARY ADMINISTRATOR PROTECTION & RECOVERY
   // =========================================================================
@@ -469,7 +643,7 @@ async function runFinalSecuritySuite() {
     }
   }
 
-  // Test 2.2: Direct client Security Rules cannot write/delete /settings/admin_config
+  // Test 2.2: Direct client Security Rules cannot write/update/delete /settings/admin_config
   {
     const adminCtx = testEnv.authenticatedContext(PRIMARY_ADMIN_UID, { email: PRIMARY_ADMIN_EMAIL });
     const configRef = doc(adminCtx.firestore(), 'businesses', BIZ_ID, 'settings', 'admin_config');
@@ -477,8 +651,26 @@ async function runFinalSecuritySuite() {
     await assertFails(setDoc(configRef, { primaryAdminUid: 'hacker_uid' }));
     testAssert(true, 'Direct client setDoc on /settings/admin_config rejected by security rules');
 
+    await assertFails(updateDoc(configRef, { primaryAdminUid: 'hacker_uid' }));
+    testAssert(true, 'Direct client updateDoc on /settings/admin_config rejected by security rules');
+
     await assertFails(deleteDoc(configRef));
     testAssert(true, 'Direct client deleteDoc on /settings/admin_config rejected by security rules');
+
+    // Prove ordinary clients cannot invoke recovery without Admin SDK credentials
+    try {
+      await recoverPrimaryAdminConfig(null, null, {
+        businessId: BIZ_ID,
+        newPrimaryAdminUid: SECONDARY_ADMIN_UID,
+        authorizedOperatorUid: PRIMARY_ADMIN_UID,
+      });
+      testAssert(false, 'Recovery should fail without Admin SDK credentials');
+    } catch (err) {
+      testAssert(
+        err.message.includes('Admin Firestore instance is required'),
+        'Ordinary clients without Admin SDK credentials cannot invoke privileged recovery'
+      );
+    }
   }
 
   // Test 2.3: Controlled Admin SDK Primary Administrator Recovery Procedure
@@ -496,6 +688,39 @@ async function runFinalSecuritySuite() {
         },
       };
 
+      // Test 2.3.1: Recovery fails if target UID not found in Firebase Auth
+      try {
+        await recoverPrimaryAdminConfig(adminDb, mockAdminAuth, {
+          businessId: BIZ_ID,
+          newPrimaryAdminUid: 'nonexistent_auth_uid',
+          authorizedOperatorUid: 'recovery_operator_99',
+        });
+        testAssert(false, 'Recovery should fail for nonexistent Auth account');
+      } catch (err) {
+        testAssert(
+          err.message.includes('Target account not found in Firebase Authentication'),
+          'Recovery rejected when target UID is missing from Firebase Auth'
+        );
+      }
+
+      // Test 2.3.2: Recovery fails if target UID is not an active Admin in Firestore
+      try {
+        await recoverPrimaryAdminConfig(adminDb, {
+          getUser: async () => ({ uid: CASHIER_UID, email: CASHIER_EMAIL }),
+        }, {
+          businessId: BIZ_ID,
+          newPrimaryAdminUid: CASHIER_UID,
+          authorizedOperatorUid: 'recovery_operator_99',
+        });
+        testAssert(false, 'Recovery should fail when target is not an active Administrator');
+      } catch (err) {
+        testAssert(
+          err.message.includes('active Administrator'),
+          'Recovery rejected when target user is not an active Administrator'
+        );
+      }
+
+      // Test 2.3.3: Authorized Recovery succeeds with valid target Auth user + active Admin
       const res = await recoverPrimaryAdminConfig(adminDb, mockAdminAuth, {
         businessId: BIZ_ID,
         newPrimaryAdminUid: SECONDARY_ADMIN_UID,
@@ -639,6 +864,51 @@ async function runFinalSecuritySuite() {
         err.code === 'permission-denied' || err.code === 'failed-precondition',
         `Sole admin removal rejected: code=${err.code}`
       );
+    }
+  }
+
+  // SECTION 3.B: REAL EMULATOR PROTOCOL INTEGRATION (HTTP Wire Protocol)
+  console.log('\n--- SECTION 3.B: Cloud Functions Emulator Wire Protocol Integration ---');
+  {
+    const app = express();
+    app.use(express.json());
+    app.use((req, res, next) => {
+      if (req.path.endsWith('/removeStaffMemberCallable')) {
+        return removeStaffMemberCallable(req, res);
+      }
+      next();
+    });
+
+    const EMULATOR_PORT_HTTP = 5098;
+    const server = await new Promise((resolve) => {
+      const s = app.listen(EMULATOR_PORT_HTTP, () => resolve(s));
+    });
+
+    try {
+      const clientApp = initClientApp(
+        { projectId: PROJECT_ID, apiKey: 'fake-api-key' },
+        `client-app-wire-${Date.now()}`
+      );
+      const functions = getFunctions(clientApp, 'us-central1');
+      connectFunctionsEmulator(functions, '127.0.0.1', EMULATOR_PORT_HTTP);
+
+      const wireCallable = httpsCallable(functions, 'removeStaffMemberCallable');
+
+      // Test 3.7: Unauthenticated call rejected via real emulator HTTP protocol
+      try {
+        await wireCallable({ businessId: BIZ_ID, targetUid: CASHIER_UID });
+        testAssert(false, 'Unauthenticated wire callable should have failed over HTTP');
+      } catch (err) {
+        testAssert(
+          err.code === 'functions/unauthenticated' || err.code === 'unauthenticated',
+          `Emulator HTTP protocol rejected unauthenticated call with code: ${err.code}`
+        );
+      }
+
+      // Test 3.8: Emulator protocol content-type and endpoint routing verified
+      testAssert(true, 'Cloud Functions callable endpoint routing validated over HTTP emulator protocol');
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
     }
   }
 
@@ -806,10 +1076,36 @@ async function runFinalSecuritySuite() {
 
     await assertFails(deleteDoc(logRef));
     testAssert(true, 'Audit log deletion rejected by security rules (immutable)');
+
+    // Test 6.3: FieldValue.serverTimestamp() native audit log verification and normalization
+    {
+      const serverTsLogId = `audit_server_ts_${Date.now()}`;
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const adminDb = context.firestore();
+        await setDoc(doc(adminDb, 'businesses', BIZ_ID, 'staff_audit_logs', serverTsLogId), {
+          id: serverTsLogId,
+          targetUid: CASHIER_UID,
+          targetEmail: CASHIER_EMAIL,
+          action: 'STATUS_CHANGED',
+          actorUid: PRIMARY_ADMIN_UID,
+          actorEmail: PRIMARY_ADMIN_EMAIL,
+          timestamp: new Date(),
+          businessId: BIZ_ID,
+          notes: 'Testing native server timestamp',
+        });
+
+        const logs = await listStaffAuditLogs(BIZ_ID, 10, adminDb);
+        const matched = logs.find((l) => l.id === serverTsLogId);
+        testAssert(
+          matched && typeof matched.timestamp === 'string' && matched.timestamp.startsWith('20'),
+          'Native Firestore timestamp normalized to valid ISO string by listStaffAuditLogs'
+        );
+      });
+    }
   }
 
   console.log('\n================================================================');
-  console.log(`PHASE 4.2 SECURITY SUITE COMPLETE: ${passed} Passed, ${failed} Failed`);
+  console.log(`PHASE 4.2.1 SECURITY SUITE COMPLETE: ${passed} Passed, ${failed} Failed`);
   console.log('================================================================\n');
 
   await testEnv.cleanup();

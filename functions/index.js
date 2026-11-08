@@ -11,7 +11,7 @@
  */
 
 import { initializeApp, getApps } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 
@@ -26,8 +26,19 @@ let adminAuth = getAuth();
 
 /**
  * Configures the admin instances for a specific project (used in automated test suites against emulators)
+ * Strictly restricted to emulator and test environments.
  */
 export function configureAdminForProject(projectId) {
+  const isEmulatorOrTest =
+    Boolean(process.env.FIRESTORE_EMULATOR_HOST) ||
+    Boolean(process.env.FUNCTIONS_EMULATOR) ||
+    process.env.NODE_ENV === 'test' ||
+    Boolean(process.env.FIREBASE_EMULATOR_HUB);
+
+  if (!isEmulatorOrTest) {
+    throw new Error('configureAdminForProject is strictly restricted to local test and emulator environments.');
+  }
+
   const appName = `admin-app-${projectId}`;
   let app;
   const existing = getApps().find((a) => a.name === appName);
@@ -43,8 +54,19 @@ export function configureAdminForProject(projectId) {
 
 /**
  * Allows test suites to inject custom Firestore/Auth instances (e.g. from rules-unit-testing context)
+ * Strictly restricted to emulator and test environments.
  */
 export function setAdminInstancesForTesting(customDb, customAuth) {
+  const isEmulatorOrTest =
+    Boolean(process.env.FIRESTORE_EMULATOR_HOST) ||
+    Boolean(process.env.FUNCTIONS_EMULATOR) ||
+    process.env.NODE_ENV === 'test' ||
+    Boolean(process.env.FIREBASE_EMULATOR_HUB);
+
+  if (!isEmulatorOrTest) {
+    throw new Error('setAdminInstancesForTesting is strictly restricted to local test and emulator environments.');
+  }
+
   if (customDb) adminDb = customDb;
   if (customAuth) adminAuth = customAuth;
 }
@@ -195,7 +217,7 @@ export const updateStaffRoleCallable = onCall(async (request) => {
         newValue: { role: newRole },
         actorUid: actorUser.uid,
         actorEmail: actorUser.email,
-        timestamp: now,
+        timestamp: FieldValue.serverTimestamp(),
         businessId,
         notes: `Role changed from ${oldRole} to ${newRole} via Cloud Function`,
       });
@@ -268,9 +290,9 @@ export const updateStaffStatusCallable = onCall(async (request) => {
       });
 
       let nextAdminCount = guard.activeAdminCount;
-      if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.DISABLED) {
+      if (currentData.role === ROLES.ADMIN && oldStatus === ACCOUNT_STATUS.ACTIVE && newStatus === ACCOUNT_STATUS.DISABLED) {
         nextAdminCount = Math.max(0, guard.activeAdminCount - 1);
-      } else if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.ACTIVE) {
+      } else if (currentData.role === ROLES.ADMIN && oldStatus === ACCOUNT_STATUS.DISABLED && newStatus === ACCOUNT_STATUS.ACTIVE) {
         nextAdminCount = guard.activeAdminCount + 1;
       }
 
@@ -292,7 +314,7 @@ export const updateStaffStatusCallable = onCall(async (request) => {
         newValue: { status: newStatus },
         actorUid: actorUser.uid,
         actorEmail: actorUser.email,
-        timestamp: now,
+        timestamp: FieldValue.serverTimestamp(),
         businessId,
         notes: `Status changed from ${oldStatus} to ${newStatus} via Cloud Function`,
       });
@@ -387,7 +409,7 @@ export const approveStaffMemberCallable = onCall(async (request) => {
         newValue: { role, status: ACCOUNT_STATUS.ACTIVE },
         actorUid: actorUser.uid,
         actorEmail: actorUser.email,
-        timestamp: now,
+        timestamp: FieldValue.serverTimestamp(),
         businessId,
         notes: `Staff member approved via Cloud Function as ${role}`,
       });
@@ -444,7 +466,7 @@ export const rejectStaffRegistrationCallable = onCall(async (request) => {
         newValue: { status: 'rejected' },
         actorUid: actorUser.uid,
         actorEmail: actorUser.email,
-        timestamp: now,
+        timestamp: FieldValue.serverTimestamp(),
         businessId,
         notes: reason,
       });
@@ -575,7 +597,7 @@ export const migrateStaffMemberUidCallable = onCall(async (request) => {
         newValue: { uid: newUid, role: oldData.role },
         actorUid: actorUser.uid,
         actorEmail: actorUser.email,
-        timestamp: now,
+        timestamp: FieldValue.serverTimestamp(),
         businessId,
         notes: `Migrated legacy membership UID (${oldUid}) to canonical Google UID (${newUid}) via Cloud Function`,
       });
@@ -694,7 +716,7 @@ export const removeStaffMemberCallable = onCall(async (request) => {
         newValue: null,
         actorUid: actorUser.uid,
         actorEmail: actorUser.email,
-        timestamp: now,
+        timestamp: FieldValue.serverTimestamp(),
         businessId,
         notes: notes || `Permanently removed staff member (${currentData.displayName || currentData.email}) from project via Cloud Function`,
       });

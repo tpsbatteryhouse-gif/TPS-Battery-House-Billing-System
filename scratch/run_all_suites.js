@@ -1,5 +1,6 @@
 import { execSync, spawn } from 'child_process';
 import http from 'http';
+import fs from 'fs';
 
 const suites = [
   'scratch/test_final_security_hardening.js',
@@ -40,12 +41,27 @@ async function ensureEmulator() {
   const running = await checkEmulatorRunning();
   if (running) return null;
 
-  console.log('[Runner] Starting Firestore emulator on 127.0.0.1:8980...');
-  const emuProcess = spawn(
+  const javaBin = [
     '/tmp/jdk-21/bin/java',
+    '/usr/bin/java',
+    'java',
+  ].find((p) => p === 'java' || fs.existsSync(p)) || 'java';
+
+  const jarPath = [
+    '/tmp/firestore-emulator.jar',
+    '/home/navaneeth/.cache/firebase/emulators/cloud-firestore-emulator-v1.22.0.jar',
+  ].find((p) => fs.existsSync(p));
+
+  if (!jarPath) {
+    throw new Error('Could not find firestore-emulator.jar in /tmp or ~/.cache/firebase/emulators');
+  }
+
+  console.log(`[Runner] Starting Firestore emulator with ${javaBin} on 127.0.0.1:8980...`);
+  const emuProcess = spawn(
+    javaBin,
     [
       '-jar',
-      '/tmp/firestore-emulator.jar',
+      jarPath,
       '--rules',
       'firestore.rules',
       '--host',

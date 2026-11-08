@@ -22,9 +22,6 @@ import {
 import { db } from '../firebase.js';
 import { DEFAULT_BUSINESS_ID } from '../../context/authConstants.js';
 import { ROLES, ACCOUNT_STATUS } from '../../utils/permissions.js';
-import { recoverPrimaryAdminConfig } from './adminConfigRecovery.js';
-
-export { recoverPrimaryAdminConfig };
 
 export function normalizeEmail(email) {
   return (email || '').trim().toLowerCase();
@@ -354,9 +351,9 @@ export async function executeStatusChangeTransaction(
     });
 
     let nextAdminCount = guard.activeAdminCount;
-    if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.DISABLED) {
+    if (currentData.role === ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.ACTIVE && newStatus === ACCOUNT_STATUS.DISABLED) {
       nextAdminCount = Math.max(0, guard.activeAdminCount - 1);
-    } else if (currentData.role === ROLES.ADMIN && newStatus === ACCOUNT_STATUS.ACTIVE) {
+    } else if (currentData.role === ROLES.ADMIN && currentData.status === ACCOUNT_STATUS.DISABLED && newStatus === ACCOUNT_STATUS.ACTIVE) {
       nextAdminCount = guard.activeAdminCount + 1;
     }
 
@@ -407,9 +404,19 @@ export async function executeStaffApprovalTransaction(
   const logId = `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const logRef = doc(dbInstance, 'businesses', businessId, 'staff_audit_logs', logId);
 
+  // Query current active admins count for fallback initialization
+  const membersRef = collection(dbInstance, 'businesses', businessId, 'members');
+  const adminQuery = query(
+    membersRef,
+    where('role', '==', ROLES.ADMIN),
+    where('status', '==', ACCOUNT_STATUS.ACTIVE)
+  );
+  const adminSnap = await getDocs(adminQuery);
+  const liveActiveAdminCount = adminSnap.size;
+
   return await runTransaction(dbInstance, async (transaction) => {
     // Read and lock admin guard document for OCC serialization
-    const guard = await getOrInitAdminGuard(transaction, dbInstance, businessId, 1);
+    const guard = await getOrInitAdminGuard(transaction, dbInstance, businessId, liveActiveAdminCount);
 
     const regSnap = await transaction.get(regRef);
     if (!regSnap.exists()) {
