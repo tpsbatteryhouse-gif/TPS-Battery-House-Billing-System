@@ -22,6 +22,10 @@ const suites = [
   'scratch/test_save_integrity_suite.js',
   'scratch/test_traditional_invoice_suite.js',
   'scratch/test_multi_category_suite.js',
+  'scratch/test_financial_precision_comprehensive.mjs',
+  'scratch/test_client_authorization_matrix.mjs',
+  'scratch/test_client_invoice_concurrency.mjs',
+  'scratch/test_financial_calculation_signoff.mjs',
 ];
 
 function checkEmulatorRunning() {

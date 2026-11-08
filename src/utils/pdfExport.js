@@ -20,10 +20,13 @@ import {
 export async function generateVectorPdf(invoice, businessInput, invoiceCopy = 'Original for Buyer') {
   const business = invoice?.businessSnapshot || businessInput;
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
+  const payableAmount = typeof invoice?.netPayable === 'number' && invoice.netPayable >= 0
+    ? invoice.netPayable
+    : totals.netPayable;
   const upiUri = buildUpiUri(
     business?.upiId,
     business?.businessName,
-    totals.netPayable,
+    payableAmount,
     invoice.invoiceNumber
   );
 
@@ -571,7 +574,7 @@ export async function generateVectorPdf(invoice, businessInput, invoiceCopy = 'O
   doc.setTextColor(...blackColor);
   doc.text('Bill Amount :', secERightX + 4.5, billBoxY + 5.2);
   doc.setFontSize(11);
-  doc.text(formatNumber(totals.netPayable), rightEdge - 4.5, billBoxY + 5.2, { align: 'right' });
+  doc.text(formatNumber(payableAmount), rightEdge - 4.5, billBoxY + 5.2, { align: 'right' });
 
   // Bank Details below Bill Amount
   const bankStartY = billBoxY + billBoxH + 3.5;

@@ -24,7 +24,10 @@ import UpiQrCode from './UpiQrCode';
 export default function InvoicePreview({ invoice, business: propBusiness, invoiceCopy = 'Original for Buyer' }) {
   const business = invoice?.businessSnapshot || propBusiness;
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
-  const upiUri = buildUpiUri(business?.upiId, business?.businessName, totals.netPayable, invoice.invoiceNumber);
+  const payableAmount = typeof invoice?.netPayable === 'number' && invoice.netPayable >= 0
+    ? invoice.netPayable
+    : totals.netPayable;
+  const upiUri = buildUpiUri(business?.upiId, business?.businessName, payableAmount, invoice.invoiceNumber);
 
   // Derive business PAN from GSTIN (chars 3 to 12)
   const businessPan = (business?.gstin || '').length >= 12 ? business.gstin.slice(2, 12) : (business?.pan || '—');
@@ -491,7 +494,7 @@ export default function InvoicePreview({ invoice, business: propBusiness, invoic
                   Bill Amount :
                 </div>
                 <div className="text-[17px] font-mono font-black tracking-tight text-black">
-                  {formatNumber(totals.netPayable)}
+                  {formatNumber(payableAmount)}
                 </div>
               </div>
             </div>

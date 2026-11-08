@@ -22,7 +22,7 @@ import {
 import { db } from '../firebase.js';
 import { DEFAULT_BUSINESS_ID } from '../../context/authConstants.js';
 import { inferTransactionType, normalizeInvoiceItem } from '../../utils/categories.js';
-import { calculateInvoiceTotals } from '../../utils/gstCalculations.js';
+import { calculateInvoiceTotals, validateInvoiceFinancials } from '../../utils/gstCalculations.js';
 import { createBusinessSnapshot, DEFAULT_BUSINESS_SETTINGS } from './businessSettingsService.js';
 
 // Pre-calculated set of allowed keys matching firestore.rules
@@ -168,6 +168,9 @@ export function sanitizeInvoiceForFirestore(rawInvoice, user = null, isUpdate = 
   if (rawInvoice.items.length > 100) {
     throw new Error('Invoice cannot contain more than 100 items.');
   }
+
+  // Strict financial input validation: prevents silent conversion of malformed data into zero
+  validateInvoiceFinancials(rawInvoice);
 
   const normalizedItems = rawInvoice.items.map((item) => normalizeInvoiceItem(item));
 
