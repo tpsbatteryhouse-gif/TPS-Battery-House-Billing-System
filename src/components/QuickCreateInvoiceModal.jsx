@@ -12,7 +12,9 @@ import {
   Sun,
   Wrench,
   Package,
+  Users,
 } from 'lucide-react';
+import CustomerPickerModal from './CustomerPickerModal';
 import { INVOICE_STATUSES } from '../data/mockData';
 import { formatINR } from '../utils/numberToWords';
 import { generateId, getIsoTimestamp } from '../utils/idGenerator';
@@ -62,9 +64,11 @@ export default function QuickCreateInvoiceModal({
   onSaveInvoice,
   onOpenInFullGenerator,
   nextInvoiceNumber,
+  customers = [],
 }) {
   const [formData, setFormData] = useState(() => getInitialFormState(nextInvoiceNumber));
   const [validationError, setValidationError] = useState('');
+  const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
 
   if (!isOpen) return null;
@@ -346,9 +350,19 @@ export default function QuickCreateInvoiceModal({
           {/* Customer & Invoice Number */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1 sm:col-span-2">
-              <label className="text-slate-400 font-medium">
-                {formData.transactionType === TRANSACTION_TYPES.B2B ? 'Buyer Business / Customer Name *' : 'Customer Name *'}
-              </label>
+              <div className="flex justify-between items-center">
+                <label className="text-slate-400 font-medium">
+                  {formData.transactionType === TRANSACTION_TYPES.B2B ? 'Buyer Business / Customer Name *' : 'Customer Name *'}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsCustomerPickerOpen(true)}
+                  className="text-[11px] text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1"
+                >
+                  <Users className="w-3 h-3" />
+                  <span>Pick Customer</span>
+                </button>
+              </div>
               <input
                 type="text"
                 required
@@ -645,6 +659,22 @@ export default function QuickCreateInvoiceModal({
           </div>
         </form>
       </div>
+
+      <CustomerPickerModal
+        isOpen={isCustomerPickerOpen}
+        onClose={() => setIsCustomerPickerOpen(false)}
+        customers={customers}
+        onSelectCustomer={(cust) => {
+          const isB2B = Boolean(cust.gstin && cust.gstin.trim().length >= 10);
+          setFormData((prev) => ({
+            ...prev,
+            customerName: cust.name || '',
+            customerPhone: cust.phone || '',
+            customerGstin: cust.gstin || '',
+            transactionType: isB2B ? TRANSACTION_TYPES.B2B : TRANSACTION_TYPES.B2C,
+          }));
+        }}
+      />
     </div>
   );
 }

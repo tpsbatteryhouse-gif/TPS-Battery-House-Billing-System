@@ -21,41 +21,45 @@ import InvoicePreview from './components/InvoicePreview';
 import InvoiceHistoryModal from './components/InvoiceHistoryModal';
 import BusinessSettingsModal from './components/BusinessSettingsModal';
 import ProductCatalogView from './components/ProductCatalogView';
-import { DEFAULT_BUSINESS, getSampleInvoiceData } from './utils/defaults';
-import { INITIAL_MOCK_INVOICES } from './data/mockData';
+import CustomerManagementView from './components/CustomerManagementView';
+import StaffManagementView from './components/StaffManagementView';
+import { getSampleInvoiceData } from './utils/defaults';
 import {
-  INITIAL_PRODUCT_CATALOG,
   PRODUCT_CATEGORIES,
   CATEGORY_CONFIG,
   TRANSACTION_TYPES,
   inferTransactionType,
   normalizeInvoiceItem,
 } from './utils/categories';
-import { downloadInvoicePdf } from './utils/pdfExport';
 import { calculateInvoiceTotals } from './utils/gstCalculations';
 import { formatINR } from './utils/numberToWords';
 import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './context/useAuth';
+import { DEFAULT_BUSINESS_ID } from './context/authConstants';
+import { useProductCatalog } from './hooks/useProductCatalog';
+import { useCustomers } from './hooks/useCustomers';
+import { useInvoices } from './hooks/useInvoices';
+import { useBusinessSettings } from './hooks/useBusinessSettings';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
-function AppContent({ business, setBusiness }) {
+function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyncStatus }) {
   const { permissions, signOutUser } = useAuth();
   // Navigation View: 'dashboard' | 'invoices' | 'editor'
   const [activeView, setActiveView] = useState('dashboard');
 
-  // Complete Invoices Dataset (Mock & User Created)
-  const [invoices, setInvoices] = useState(() => {
-    try {
-      const saved = localStorage.getItem('tps_invoice_records');
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed;
-      }
-      return INITIAL_MOCK_INVOICES;
-    } catch {
-      return INITIAL_MOCK_INVOICES;
-    }
-  });
+  // Centralized Invoices Dataset with Firestore Realtime Sync, Atomic Sequence Allocation & Offline Cache
+  const {
+    invoices,
+    setInvoices,
+    loading: invoicesLoading,
+    error: invoicesError,
+    syncStatus: invoicesSyncStatus,
+    saveInvoice,
+    changeInvoiceStatus,
+    removeInvoice,
+    refreshInvoices,
+    peekNextInvoiceNumber,
+  } = useInvoices(DEFAULT_BUSINESS_ID, business);
 
   // Current Active Invoice for Generator / Live Editor
   const [invoice, setInvoice] = useState(() => {
@@ -67,19 +71,28 @@ function AppContent({ business, setBusiness }) {
     }
   });
 
-  // Centralized Product Catalog Dataset
-  const [catalog, setCatalog] = useState(() => {
-    try {
-      const saved = localStorage.getItem('tps_product_catalog');
-      if (saved !== null) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-      return INITIAL_PRODUCT_CATALOG;
-    } catch {
-      return INITIAL_PRODUCT_CATALOG;
-    }
-  });
+  // Centralized Product Catalog Dataset with Firestore Realtime Sync & Offline Cache
+  const {
+    catalog,
+    setCatalog,
+    loading: catalogLoading,
+    error: catalogError,
+    syncStatus: catalogSyncStatus,
+    saveProduct,
+    removeProduct,
+    refreshCatalog,
+  } = useProductCatalog(DEFAULT_BUSINESS_ID);
+
+  // Centralized Customer Directory Dataset with Firestore Realtime Sync & Offline Cache
+  const {
+    customers,
+    loading: customersLoading,
+    error: customersError,
+    syncStatus: customersSyncStatus,
+    saveCustomer,
+    removeCustomer,
+    refreshCustomers,
+  } = useCustomers(DEFAULT_BUSINESS_ID);
 
   // UI Modal & Control States
   const [isQuickCreateOpen, setIsQuickCreateOpen] = useState(false);
@@ -121,33 +134,9 @@ function AppContent({ business, setBusiness }) {
     }
   }, [catalog]);
 
-  // Compute Next Sequential Invoice Number without collisions
-  const getNextInvoiceNumber = () => {
-    const prefix = business.invoicePrefix || 'TPS/2026-27/';
-    let maxSeq = 0;
-
-    invoices.forEach((inv) => {
-      const invNum = inv.invoiceNumber || '';
-      if (invNum.startsWith(prefix)) {
-        const numPart = invNum.slice(prefix.length);
-        const parsed = parseInt(numPart, 10);
-        if (!isNaN(parsed) && parsed > maxSeq) {
-          maxSeq = parsed;
-        }
-      } else {
-        const match = invNum.match(/(\d+)$/);
-        if (match) {
-          const parsed = parseInt(match[1], 10);
-          if (!isNaN(parsed) && parsed > maxSeq) {
-            maxSeq = parsed;
-          }
-        }
-      }
-    });
-
-    const nextSeq = maxSeq + 1;
-    const formatted = String(nextSeq).padStart(3, '0');
-    return `${prefix}${formatted}`;
+  // Compute Next Sequential Invoice Number for display without collisions
+  const getNextInvoiceNumber = (date) => {
+    return peekNextInvoiceNumber(business?.invoicePrefix, date || invoice?.invoiceDate);
   };
 
   // Toast feedback helper
@@ -160,25 +149,31 @@ function AppContent({ business, setBusiness }) {
   const totals = calculateInvoiceTotals(invoice, business.stateCode || '32');
 
   // Handle Quick Create Save
-  const handleSaveQuickInvoice = (newInvoice) => {
-    const txType = inferTransactionType(newInvoice);
-    const normalizedItems = (newInvoice.items || []).map((item) => normalizeInvoiceItem(item));
-    const invWithItems = {
-      ...newInvoice,
-      items: normalizedItems,
-    };
-    const quickTotals = calculateInvoiceTotals(invWithItems, business.stateCode || '32');
+  const handleSaveQuickInvoice = async (newInvoice) => {
+    try {
+      const txType = inferTransactionType(newInvoice);
+      const normalizedItems = (newInvoice.items || []).map((item) => normalizeInvoiceItem(item));
+      const invWithItems = {
+        ...newInvoice,
+        items: normalizedItems,
+      };
+      const quickTotals = calculateInvoiceTotals(invWithItems, business.stateCode || '32');
 
-    const invoiceToSave = {
-      ...invWithItems,
-      id: newInvoice.id || ('inv-' + Date.now()),
-      transactionType: txType,
-      netPayable: quickTotals.netPayable,
-      savedAt: new Date().toISOString(),
-    };
+      const invoiceToSave = {
+        ...invWithItems,
+        id: newInvoice.id || ('inv-' + Date.now()),
+        transactionType: txType,
+        netPayable: quickTotals.netPayable,
+        savedAt: new Date().toISOString(),
+      };
 
-    setInvoices((prev) => [invoiceToSave, ...prev]);
-    showToast(`Invoice ${invoiceToSave.invoiceNumber} created successfully!`);
+      const saved = await saveInvoice(invoiceToSave);
+      setInvoices((prev) => [saved, ...prev.filter((i) => i.id !== saved.id && i.invoiceNumber !== saved.invoiceNumber)]);
+      showToast(`Invoice ${saved.invoiceNumber} created successfully!`);
+    } catch (err) {
+      console.error('Failed to save quick invoice:', err);
+      showToast(`Error saving invoice: ${err.message}`);
+    }
   };
 
   // Handle Opening an Invoice from Dashboard / List into Full Generator
@@ -287,59 +282,75 @@ function AppContent({ business, setBusiness }) {
   };
 
   // Handle Saving bill from within the Full GST Billing Studio
-  const handleSaveInvoiceInEditor = () => {
-    const stableId = invoice.id || ('inv-' + Date.now());
-    const txType = inferTransactionType(invoice);
-    const normalizedItems = (invoice.items || []).map((item) => normalizeInvoiceItem(item));
+  const handleSaveInvoiceInEditor = async () => {
+    try {
+      const stableId = invoice.id || ('inv-' + Date.now());
+      const txType = inferTransactionType(invoice);
+      const normalizedItems = (invoice.items || []).map((item) => normalizeInvoiceItem(item));
 
-    const invoiceToSave = {
-      ...invoice,
-      id: stableId,
-      transactionType: txType,
-      items: normalizedItems,
-      scrapExchange: {
-        ...invoice.scrapExchange,
-        enabled: Boolean(invoice.scrapExchange?.enabled),
-        amount: Math.max(0, Number(invoice.scrapExchange?.amount) || 0),
-        description: invoice.scrapExchange?.description || 'Old 150Ah Scrap Battery Buyback',
-      },
-      additionalDiscount: Math.max(0, Number(invoice.additionalDiscount) || 0),
-      netPayable: totals.netPayable,
-      savedAt: new Date().toISOString(),
-    };
+      const invoiceToSave = {
+        ...invoice,
+        id: stableId,
+        transactionType: txType,
+        items: normalizedItems,
+        scrapExchange: {
+          ...invoice.scrapExchange,
+          enabled: Boolean(invoice.scrapExchange?.enabled),
+          amount: Math.max(0, Number(invoice.scrapExchange?.amount) || 0),
+          description: invoice.scrapExchange?.description || 'Old 150Ah Scrap Battery Buyback',
+        },
+        additionalDiscount: Math.max(0, Number(invoice.additionalDiscount) || 0),
+        netPayable: totals.netPayable,
+        savedAt: new Date().toISOString(),
+      };
 
-    // Keep active editor state exactly in sync with saved record
-    setInvoice(invoiceToSave);
+      const saved = await saveInvoice(invoiceToSave);
 
-    // Update invoices array (match by stable ID first, then invoiceNumber)
-    setInvoices((prev) => {
-      const existingIdx = prev.findIndex(
-        (i) => (i.id && i.id === invoiceToSave.id) || i.invoiceNumber === invoiceToSave.invoiceNumber
-      );
-      if (existingIdx >= 0) {
-        const updated = [...prev];
-        updated[existingIdx] = invoiceToSave;
-        return updated;
-      }
-      return [invoiceToSave, ...prev];
-    });
+      // Keep active editor state exactly in sync with saved record
+      setInvoice(saved);
 
-    setIsSavedFeedback(true);
-    showToast(`Invoice ${invoiceToSave.invoiceNumber} saved!`);
-    setTimeout(() => setIsSavedFeedback(false), 2500);
+      // Update invoices array (match by stable ID first, then invoiceNumber)
+      setInvoices((prev) => {
+        const existingIdx = prev.findIndex(
+          (i) => (i.id && i.id === saved.id) || i.invoiceNumber === saved.invoiceNumber
+        );
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          updated[existingIdx] = saved;
+          return updated;
+        }
+        return [saved, ...prev];
+      });
+
+      setIsSavedFeedback(true);
+      showToast(`Invoice ${saved.invoiceNumber} saved!`);
+      setTimeout(() => setIsSavedFeedback(false), 2500);
+    } catch (err) {
+      console.error('Failed to save invoice in editor:', err);
+      showToast(`Error saving invoice: ${err.message}`);
+    }
   };
 
   // Delete Invoice from dataset (Admin only)
-  const handleDeleteInvoice = (idOrNumber) => {
+  const handleDeleteInvoice = async (idOrNumber) => {
     if (permissions && !permissions.canDeleteInvoice) {
       alert('Access Denied: Only store administrators are authorized to delete invoices.');
       return;
     }
-    if (confirm('Are you sure you want to delete this invoice record?')) {
-      setInvoices((prev) =>
-        prev.filter((i) => i.id !== idOrNumber && i.invoiceNumber !== idOrNumber)
-      );
-      showToast('Invoice deleted.');
+    if (confirm('Are you sure you want to permanently delete this invoice record?')) {
+      try {
+        const target = invoices.find((i) => i.id === idOrNumber || i.invoiceNumber === idOrNumber);
+        if (target && target.id) {
+          await removeInvoice(target.id);
+        }
+        setInvoices((prev) =>
+          prev.filter((i) => i.id !== idOrNumber && i.invoiceNumber !== idOrNumber)
+        );
+        showToast('Invoice deleted.');
+      } catch (err) {
+        console.error('Failed to delete invoice:', err);
+        alert(`Delete failed: ${err.message}`);
+      }
     }
   };
 
@@ -354,10 +365,11 @@ function AppContent({ business, setBusiness }) {
     window.print();
   };
 
-  // Download PDF
+  // Download PDF (lazy loads html2canvas and jsPDF on demand)
   const handleDownloadPdf = async () => {
     setIsPdfGenerating(true);
     try {
+      const { downloadInvoicePdf } = await import('./utils/pdfExport.js');
       await downloadInvoicePdf(
         'invoice-printable',
         invoice.invoiceNumber,
@@ -446,6 +458,11 @@ function AppContent({ business, setBusiness }) {
                 onNewInvoice={handleStartNewInvoice}
                 onOpenInvoice={handleOpenInvoiceInEditor}
                 onDeleteInvoice={handleDeleteInvoice}
+                onChangeStatus={changeInvoiceStatus}
+                syncStatus={invoicesSyncStatus}
+                syncError={invoicesError}
+                onRefresh={refreshInvoices}
+                loading={invoicesLoading}
               />
             )}
 
@@ -578,6 +595,7 @@ function AppContent({ business, setBusiness }) {
                       invoice={invoice}
                       setInvoice={setInvoice}
                       catalog={catalog}
+                      customers={customers}
                       business={business}
                       onSave={handleSaveInvoiceInEditor}
                       onReset={handleStartNewInvoice}
@@ -697,6 +715,7 @@ function AppContent({ business, setBusiness }) {
                         invoice={invoice}
                         setInvoice={setInvoice}
                         catalog={catalog}
+                        customers={customers}
                         business={business}
                         onSave={handleSaveInvoiceInEditor}
                         onReset={handleStartNewInvoice}
@@ -752,12 +771,60 @@ function AppContent({ business, setBusiness }) {
               <ProductCatalogView
                 catalog={catalog}
                 setCatalog={setCatalog}
+                onSaveProduct={saveProduct}
+                onDeleteProduct={removeProduct}
+                syncStatus={catalogSyncStatus}
+                syncError={catalogError}
+                onRefresh={refreshCatalog}
+                loading={catalogLoading}
                 onAddToInvoice={(prod) => {
                   handleAddProductToActiveBill(prod);
                   setActiveView('editor');
                 }}
                 onNavigateToEditor={() => setActiveView('editor')}
               />
+            )}
+
+            {/* VIEW 5: CUSTOMER & BUYER DIRECTORY MANAGEMENT */}
+            {activeView === 'customers' && (
+              <CustomerManagementView
+                customers={customers}
+                onSaveCustomer={saveCustomer}
+                onDeleteCustomer={removeCustomer}
+                syncStatus={customersSyncStatus}
+                syncError={customersError}
+                onRefresh={refreshCustomers}
+                loading={customersLoading}
+                onSelectCustomerForBill={(cust) => {
+                  setInvoice((prev) => {
+                    const isB2B = Boolean(cust.gstin && cust.gstin.trim().length >= 10);
+                    return {
+                      ...prev,
+                      transactionType: isB2B ? TRANSACTION_TYPES.B2B : TRANSACTION_TYPES.B2C,
+                      customer: {
+                        ...prev.customer,
+                        name: cust.name || '',
+                        phone: cust.phone || '',
+                        address: cust.address || '',
+                        shippingAddress: cust.shippingAddress || '',
+                        city: cust.city || 'Thrithala',
+                        district: cust.district || 'Palakkad',
+                        state: cust.state || 'Kerala',
+                        stateCode: cust.stateCode || '32',
+                        pincode: cust.pincode || '679552',
+                        gstin: cust.gstin || '',
+                        pan: cust.pan || (cust.gstin && cust.gstin.length >= 12 ? cust.gstin.slice(2, 12) : ''),
+                      },
+                    };
+                  });
+                  setActiveView('editor');
+                }}
+              />
+            )}
+
+            {/* VIEW 6: STAFF ADMINISTRATION & RBAC */}
+            {activeView === 'staff' && (
+              <StaffManagementView business={business} />
             )}
           </main>
 
@@ -809,6 +876,7 @@ function AppContent({ business, setBusiness }) {
                 setActiveView('editor');
               }}
               nextInvoiceNumber={getNextInvoiceNumber()}
+              customers={customers}
             />
           )}
 
@@ -825,6 +893,8 @@ function AppContent({ business, setBusiness }) {
             onClose={() => setIsSettingsOpen(false)}
             business={business}
             setBusiness={setBusiness}
+            onSave={onSaveBusinessSettings}
+            syncStatus={settingsSyncStatus}
           />
 
           {/* Invoice History Drawer */}
@@ -840,21 +910,30 @@ function AppContent({ business, setBusiness }) {
   );
 }
 
-export default function App() {
-  const [business, setBusiness] = useState(() => {
-    try {
-      const saved = localStorage.getItem('tps_business_profile');
-      return saved ? JSON.parse(saved) : DEFAULT_BUSINESS;
-    } catch {
-      return DEFAULT_BUSINESS;
-    }
-  });
+function AppWithSettings() {
+  const {
+    settings: business,
+    setSettings: setBusiness,
+    updateSettings,
+    syncStatus: settingsSyncStatus,
+  } = useBusinessSettings(DEFAULT_BUSINESS_ID);
 
   return (
+    <ProtectedRoute business={business}>
+      <AppContent
+        business={business}
+        setBusiness={setBusiness}
+        onSaveBusinessSettings={updateSettings}
+        settingsSyncStatus={settingsSyncStatus}
+      />
+    </ProtectedRoute>
+  );
+}
+
+export default function App() {
+  return (
     <AuthProvider>
-      <ProtectedRoute business={business}>
-        <AppContent business={business} setBusiness={setBusiness} />
-      </ProtectedRoute>
+      <AppWithSettings />
     </AuthProvider>
   );
 }
