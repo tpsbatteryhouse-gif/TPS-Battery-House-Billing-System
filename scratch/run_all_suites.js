@@ -26,6 +26,7 @@ const suites = [
   'scratch/test_client_authorization_matrix.mjs',
   'scratch/test_client_invoice_concurrency.mjs',
   'scratch/test_financial_calculation_signoff.mjs',
+  'scratch/test_phase_6b_vulnerabilities.mjs',
 ];
 
 function checkEmulatorRunning() {

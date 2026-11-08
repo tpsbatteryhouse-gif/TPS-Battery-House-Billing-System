@@ -173,11 +173,10 @@ service cloud.firestore {
         data.targetUid is string &&
         data.targetUid.size() >= 1 &&
         data.targetUid.size() <= 128 &&
-        data.email is string || true && // placeholder pass
         data.targetEmail is string &&
         isValidEmail(data.targetEmail) &&
         data.action is string &&
-        data.action in ['STAFF_APPROVED', 'STAFF_REJECTED', 'ROLE_CHANGED', 'STATUS_CHANGED', 'STAFF_REGISTERED', 'STAFF_REMOVED'] &&
+        data.action in ['STAFF_APPROVED', 'STAFF_REJECTED', 'ROLE_CHANGED', 'STATUS_CHANGED', 'STAFF_REMOVED'] &&
         data.actorUid is string &&
         data.actorUid == request.auth.uid &&
         data.actorEmail is string &&
@@ -261,23 +260,12 @@ service cloud.firestore {
     function areImmutableInvoiceFieldsUnchanged() {
       return request.resource.data.id == resource.data.id &&
         request.resource.data.invoiceNumber == resource.data.invoiceNumber &&
+        (!('financialYear' in resource.data) || request.resource.data.financialYear == resource.data.financialYear) &&
         (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
         (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy) &&
         (!('businessSnapshot' in resource.data) ||
          (('businessSnapshot' in request.resource.data) &&
-          request.resource.data.businessSnapshot.businessName == resource.data.businessSnapshot.businessName &&
-          request.resource.data.businessSnapshot.address == resource.data.businessSnapshot.address &&
-          request.resource.data.businessSnapshot.gstin == resource.data.businessSnapshot.gstin &&
-          request.resource.data.businessSnapshot.phone == resource.data.businessSnapshot.phone &&
-          request.resource.data.businessSnapshot.email == resource.data.businessSnapshot.email &&
-          request.resource.data.businessSnapshot.bankName == resource.data.businessSnapshot.bankName &&
-          request.resource.data.businessSnapshot.accountNo == resource.data.businessSnapshot.accountNo &&
-          request.resource.data.businessSnapshot.ifsc == resource.data.businessSnapshot.ifsc &&
-          request.resource.data.businessSnapshot.upiId == resource.data.businessSnapshot.upiId &&
-          (!('terms' in resource.data.businessSnapshot) || request.resource.data.businessSnapshot.terms.size() == resource.data.businessSnapshot.terms.size()) &&
-          request.resource.data.businessSnapshot.footerText == resource.data.businessSnapshot.footerText &&
-          request.resource.data.businessSnapshot.authorizedSignatory == resource.data.businessSnapshot.authorizedSignatory &&
-          (!('city' in resource.data.businessSnapshot) || request.resource.data.businessSnapshot.city == resource.data.businessSnapshot.city)));
+          request.resource.data.businessSnapshot == resource.data.businessSnapshot));
     }
 
     // Product Document Validator: called on create and update
@@ -447,6 +435,21 @@ service cloud.firestore {
         (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp)) &&
         isValidOptionalString(data, 'createdBy', 1, 128) &&
         isValidOptionalString(data, 'updatedBy', 1, 128);
+    }
+
+    // Admin Guard Document Validator (/settings/admin_guard)
+    function isValidAdminGuard(data, settingId) {
+      return settingId == 'admin_guard' &&
+        data.size() <= 10 &&
+        data.keys().hasAll(['id', 'activeAdminCount', 'lastSequence']) &&
+        data.keys().hasOnly(['id', 'activeAdminCount', 'lastSequence', 'updatedAt', 'updatedBy']) &&
+        data.id == 'admin_guard' &&
+        data.activeAdminCount is number &&
+        data.activeAdminCount >= 0 &&
+        data.lastSequence is number &&
+        data.lastSequence >= 0 &&
+        isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
     }
 
     // Business Root Document Validator
@@ -713,7 +716,9 @@ service cloud.firestore {
                              ? isValidBusinessSettings(request.resource.data, settingId)
                              : settingId == 'financial_details'
                                ? isValidFinancialDetails(request.resource.data, settingId)
-                               : isValidSetting(request.resource.data, settingId)));
+                               : settingId == 'admin_guard'
+                                 ? isValidAdminGuard(request.resource.data, settingId)
+                                 : isValidSetting(request.resource.data, settingId)));
 
         allow update: if settingId == 'admin_config'
                         ? false
@@ -726,7 +731,9 @@ service cloud.firestore {
                                ? (isValidFinancialDetails(request.resource.data, settingId) &&
                                   (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
                                   (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy))
-                               : isValidSetting(request.resource.data, settingId)));
+                               : settingId == 'admin_guard'
+                                 ? isValidAdminGuard(request.resource.data, settingId)
+                                 : isValidSetting(request.resource.data, settingId)));
 
         allow delete: if settingId == 'admin_config' ? false : isAdmin(businessId);
       }
