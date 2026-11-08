@@ -316,7 +316,7 @@ export function normalizeInvoiceItem(item) {
   const rawRate = item.rate !== undefined ? item.rate : (item.unitPrice !== undefined ? item.unitPrice : item.price);
   const rate = (rawRate !== undefined && rawRate !== null && rawRate !== '') ? Math.max(0, Number(rawRate) || 0) : 0;
   const rawQty = item.qty !== undefined ? item.qty : item.quantity;
-  const qty = (rawQty !== undefined && rawQty !== null && rawQty !== '') ? Math.max(0.01, Number(rawQty) || 1) : 1;
+  const qty = (rawQty !== undefined && rawQty !== null && rawQty !== '') ? Math.max(0.001, Number(rawQty) || 1) : 1;
   const isTaxInclusive = item.isTaxInclusive !== undefined ? Boolean(item.isTaxInclusive) : true;
 
   let gstRate = CATEGORY_CONFIG[category]?.defaultGstRate ?? 28;

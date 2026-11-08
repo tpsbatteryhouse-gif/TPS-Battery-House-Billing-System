@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Receipt,
   User,
+  Users,
   Package,
   ArrowRightLeft,
   BatteryCharging,
@@ -40,11 +41,13 @@ import { formatNumber } from '../utils/numberToWords';
 import { calculateLineItem, calculateInvoiceTotals } from '../utils/gstCalculations';
 import { generateId } from '../utils/idGenerator';
 import CatalogItemPickerModal from './CatalogItemPickerModal';
+import CustomerPickerModal from './CustomerPickerModal';
 
 export default function InvoiceForm({
   invoice,
   setInvoice,
   catalog = [],
+  customers = [],
   business,
   onSave,
   onReset,
@@ -57,7 +60,34 @@ export default function InvoiceForm({
 }) {
   const [activeTab, setActiveTab] = useState('items'); // 'items', 'general', 'adjustments'
   const [isCatalogPickerOpen, setIsCatalogPickerOpen] = useState(false);
+  const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
   const [presetCategoryFilter, setPresetCategoryFilter] = useState('all');
+
+  const handleSelectCustomer = (cust) => {
+    if (!cust) return;
+    setInvoice((prev) => {
+      const isB2B = Boolean(cust.gstin && cust.gstin.trim().length >= 10);
+      const newTxType = isB2B ? TRANSACTION_TYPES.B2B : TRANSACTION_TYPES.B2C;
+      return {
+        ...prev,
+        transactionType: newTxType,
+        customer: {
+          ...prev.customer,
+          name: cust.name || '',
+          phone: cust.phone || '',
+          address: cust.address || '',
+          shippingAddress: cust.shippingAddress || '',
+          city: cust.city || 'Thrithala',
+          district: cust.district || 'Palakkad',
+          state: cust.state || 'Kerala',
+          stateCode: cust.stateCode || '32',
+          pincode: cust.pincode || '679552',
+          gstin: cust.gstin || '',
+          pan: cust.pan || (cust.gstin && cust.gstin.length >= 12 ? cust.gstin.slice(2, 12) : ''),
+        },
+      };
+    });
+  };
 
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
 
@@ -1120,14 +1150,25 @@ export default function InvoiceForm({
 
               return (
                 <div className="bg-slate-800/60 p-4 sm:p-5 rounded-2xl border border-slate-700/60 space-y-4 shadow-lg">
-                  <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-amber-400 flex items-center justify-between">
+                  <div className="text-xs sm:text-sm font-bold uppercase tracking-wider text-amber-400 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <User className="w-4 h-4" />
                       <span>{isB2B ? 'Buyer / Billed-To Business Particulars' : 'Customer / Billed-To Particulars'}</span>
                     </div>
-                    <span className="text-xs font-sans font-semibold text-slate-400">
-                      {isB2B ? 'B2B Registered Entity' : 'B2C Retail Buyer'}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsCustomerPickerOpen(true)}
+                        className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors"
+                        title="Search and select from customer directory"
+                      >
+                        <Users className="w-3.5 h-3.5" />
+                        <span>Pick Customer</span>
+                      </button>
+                      <span className="text-xs font-sans font-semibold text-slate-400">
+                        {isB2B ? 'B2B Registered Entity' : 'B2C Retail Buyer'}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-12 gap-3.5">
@@ -1568,6 +1609,14 @@ export default function InvoiceForm({
         onClose={() => setIsCatalogPickerOpen(false)}
         catalog={catalog}
         onSelectItem={handlePickFromCatalog}
+      />
+
+      {/* Customer Picker Modal */}
+      <CustomerPickerModal
+        isOpen={isCustomerPickerOpen}
+        onClose={() => setIsCustomerPickerOpen(false)}
+        customers={customers}
+        onSelectCustomer={handleSelectCustomer}
       />
     </div>
   );

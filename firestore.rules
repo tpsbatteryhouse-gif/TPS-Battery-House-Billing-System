@@ -79,6 +79,14 @@ service cloud.firestore {
       return hasRole(businessId, 'cashier');
     }
 
+    // Check if target user is the designated Primary Administrator
+    // Path: /businesses/{businessId}/settings/admin_config
+    function isPrimaryAdmin(businessId, uid) {
+      return exists(/databases/$(database)/documents/businesses/$(businessId)/settings/admin_config)
+        ? (get(/databases/$(database)/documents/businesses/$(businessId)/settings/admin_config).data.primaryAdminUid == uid)
+        : false;
+    }
+
     // Validate standard RFC-compliant email string format
     function isValidEmail(email) {
       return email is string &&
@@ -89,6 +97,7 @@ service cloud.firestore {
     // Validate optional string field constraints
     function isValidOptionalString(data, field, minLen, maxLen) {
       return !(field in data) ||
+        data[field] == null ||
         (data[field] is string &&
          data[field].size() >= minLen &&
          data[field].size() <= maxLen);
@@ -100,8 +109,8 @@ service cloud.firestore {
 
     // Staff Member Validator: called on create and update
     function isValidMember(data, uid) {
-      return data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'status', 'createdAt', 'createdBy']) &&
-        data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'status', 'createdAt', 'createdBy']) &&
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'status', 'createdAt', 'createdBy']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'status', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy']) &&
         data.uid is string &&
         data.uid == uid &&
         data.uid.size() > 0 &&
@@ -118,7 +127,64 @@ service cloud.firestore {
         (data.createdAt is timestamp || data.createdAt is string) &&
         data.createdBy is string &&
         data.createdBy.size() > 0 &&
-        data.createdBy.size() <= 128;
+        data.createdBy.size() <= 128 &&
+        isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
+    }
+
+    // Pending Staff Registration Request Validator
+    function isValidPendingRegistration(data, uid) {
+      return data.size() <= 15 &&
+        data.keys().hasAll(['uid', 'email', 'displayName', 'status', 'requestedAt']) &&
+        data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'photoURL', 'status',
+          'requestedAt', 'reviewedBy', 'reviewedAt', 'rejectionReason', 'assignedRole'
+        ]) &&
+        data.uid is string &&
+        data.uid == uid &&
+        data.uid.size() > 0 &&
+        data.uid.size() <= 128 &&
+        data.email is string &&
+        isValidEmail(data.email) &&
+        data.displayName is string &&
+        data.displayName.size() >= 1 &&
+        data.displayName.size() <= 100 &&
+        data.status is string &&
+        data.status in ['pending', 'approved', 'rejected'] &&
+        (data.requestedAt is string || data.requestedAt is timestamp) &&
+        isValidOptionalString(data, 'photoURL', 0, 500) &&
+        isValidOptionalString(data, 'reviewedBy', 1, 128) &&
+        (!('reviewedAt' in data) || (data.reviewedAt is string || data.reviewedAt is timestamp)) &&
+        isValidOptionalString(data, 'rejectionReason', 0, 500) &&
+        isValidOptionalString(data, 'assignedRole', 1, 30);
+    }
+
+    // Staff Administrative Audit Log Validator
+    function isValidStaffAuditLog(data, logId) {
+      return data.size() <= 15 &&
+        data.keys().hasAll(['id', 'targetUid', 'targetEmail', 'action', 'actorUid', 'actorEmail', 'timestamp', 'businessId']) &&
+        data.keys().hasOnly([
+          'id', 'targetUid', 'targetEmail', 'targetName', 'action',
+          'previousValue', 'newValue', 'actorUid', 'actorEmail',
+          'timestamp', 'businessId', 'notes'
+        ]) &&
+        data.id is string &&
+        data.id == logId &&
+        data.targetUid is string &&
+        data.targetUid.size() >= 1 &&
+        data.targetUid.size() <= 128 &&
+        data.targetEmail is string &&
+        isValidEmail(data.targetEmail) &&
+        data.action is string &&
+        data.action in ['STAFF_APPROVED', 'STAFF_REJECTED', 'ROLE_CHANGED', 'STATUS_CHANGED', 'STAFF_REMOVED'] &&
+        data.actorUid is string &&
+        data.actorUid == request.auth.uid &&
+        data.actorEmail is string &&
+        isValidEmail(data.actorEmail) &&
+        (data.timestamp is timestamp || (data.timestamp is string && data.timestamp.matches('^20[2-9][0-9]-.*'))) &&
+        data.businessId is string &&
+        isValidOptionalString(data, 'targetName', 0, 100) &&
+        isValidOptionalString(data, 'notes', 0, 500);
     }
 
     // Member Immutable Fields Validator
@@ -130,17 +196,10 @@ service cloud.firestore {
 
     // Invoice Document Validator: called on create and update
     function isValidInvoice(data, invoiceId) {
-      return data.keys().hasAll([
+      return data.size() <= 30 &&
+        data.keys().hasAll([
           'id', 'invoiceNumber', 'invoiceDate', 'dueDate',
           'paymentStatus', 'paymentMode', 'customer', 'items', 'netPayable'
-        ]) &&
-        data.keys().hasOnly([
-          'id', 'invoiceNumber', 'transactionType', 'invoiceDate', 'dueDate',
-          'paymentStatus', 'paymentMode', 'placeOfSupply', 'reverseCharge',
-          'poNumber', 'ewayBillNo', 'irn',
-          'customer', 'items', 'scrapExchange', 'additionalDiscount',
-          'roundOffManual', 'netPayable', 'notes', 'createdAt', 'savedAt',
-          'createdBy', 'updatedAt', 'updatedBy'
         ]) &&
         data.id is string &&
         data.id == invoiceId &&
@@ -192,6 +251,8 @@ service cloud.firestore {
         (!('roundOffManual' in data) || data.roundOffManual == null || data.roundOffManual is number) &&
         isValidOptionalString(data, 'createdBy', 1, 128) &&
         isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        (!('financialYear' in data) || (data.financialYear is string && data.financialYear.matches('^[0-9]{4}-[0-9]{2}$'))) &&
+        (!('businessSnapshot' in data) || data.businessSnapshot is map) &&
         (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
     }
 
@@ -199,8 +260,12 @@ service cloud.firestore {
     function areImmutableInvoiceFieldsUnchanged() {
       return request.resource.data.id == resource.data.id &&
         request.resource.data.invoiceNumber == resource.data.invoiceNumber &&
+        (!('financialYear' in resource.data) || request.resource.data.financialYear == resource.data.financialYear) &&
         (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
-        (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy);
+        (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy) &&
+        (!('businessSnapshot' in resource.data) ||
+         (('businessSnapshot' in request.resource.data) &&
+          request.resource.data.businessSnapshot == resource.data.businessSnapshot));
     }
 
     // Product Document Validator: called on create and update
@@ -308,12 +373,147 @@ service cloud.firestore {
         data.size() <= 50;
     }
 
+    // Business Profile Settings Validator (Phase 3)
+    function isValidBusinessSettings(data, settingId) {
+      return settingId == 'business_profile' &&
+        data.size() <= 45 &&
+        data.keys().hasAll(['businessName', 'stateCode']) &&
+        data.keys().hasOnly([
+          'businessName', 'legalName', 'businessType', 'address', 'addressLine1', 'roadStreet',
+          'city', 'district', 'cityDistrict', 'state', 'stateCode', 'pincode', 'pinCode',
+          'gstin', 'pan', 'phone', 'alternatePhone', 'altPhone', 'email', 'website',
+          'logoUrl', 'tagline', 'bank', 'bankName', 'accountNo', 'accountName', 'branch',
+          'ifsc', 'upi', 'upiId', 'invoiceSettings', 'terms', 'invoicePrefix', 'config',
+          'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+        ]) &&
+        data.businessName is string &&
+        data.businessName.size() >= 1 &&
+        data.businessName.size() <= 150 &&
+        data.stateCode is string &&
+        data.stateCode.size() >= 1 &&
+        data.stateCode.size() <= 10 &&
+        isValidOptionalString(data, 'gstin', 0, 25) &&
+        isValidOptionalString(data, 'pan', 0, 20) &&
+        isValidOptionalString(data, 'phone', 0, 25) &&
+        isValidOptionalString(data, 'email', 0, 100) &&
+        isValidOptionalString(data, 'createdBy', 1, 128) &&
+        isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        (!('bank' in data) || (data.bank is map && data.bank.size() <= 15)) &&
+        (!('upi' in data) || (data.upi is map && data.upi.size() <= 10)) &&
+        (!('invoiceSettings' in data) || (data.invoiceSettings is map && data.invoiceSettings.size() <= 15)) &&
+        (!('terms' in data) || (data.terms is list && data.terms.size() <= 25)) &&
+        (!('config' in data) || (data.config is map && data.config.size() <= 10)) &&
+        (!('createdAt' in data) || (data.createdAt is string || data.createdAt is timestamp)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
+    }
+
+    // Restricted Financial Details Validator (/settings/financial_details)
+    // Strictly accessible only to administrators
+    function isValidFinancialDetails(data, settingId) {
+      return settingId == 'financial_details' &&
+        data.size() <= 20 &&
+        data.keys().hasAll(['bankName', 'ifsc']) &&
+        data.keys().hasOnly([
+          'bankName', 'accountHolder', 'accountName', 'accountNumber', 'accountNo',
+          'ifsc', 'branch', 'accountType', 'enabled',
+          'createdAt', 'updatedAt', 'createdBy', 'updatedBy'
+        ]) &&
+        data.bankName is string &&
+        data.bankName.size() >= 1 &&
+        data.bankName.size() <= 100 &&
+        data.ifsc is string &&
+        data.ifsc.size() >= 4 &&
+        data.ifsc.size() <= 20 &&
+        isValidOptionalString(data, 'accountNumber', 1, 50) &&
+        isValidOptionalString(data, 'accountNo', 1, 50) &&
+        isValidOptionalString(data, 'accountHolder', 1, 150) &&
+        isValidOptionalString(data, 'accountName', 1, 150) &&
+        isValidOptionalString(data, 'branch', 1, 100) &&
+        isValidOptionalString(data, 'accountType', 1, 50) &&
+        (!('enabled' in data) || data.enabled is bool) &&
+        (!('createdAt' in data) || (data.createdAt is string || data.createdAt is timestamp)) &&
+        (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp)) &&
+        isValidOptionalString(data, 'createdBy', 1, 128) &&
+        isValidOptionalString(data, 'updatedBy', 1, 128);
+    }
+
+    // Admin Guard Document Validator (/settings/admin_guard)
+    function isValidAdminGuard(data, settingId) {
+      return settingId == 'admin_guard' &&
+        data.size() <= 10 &&
+        data.keys().hasAll(['id', 'activeAdminCount', 'lastSequence']) &&
+        data.keys().hasOnly(['id', 'activeAdminCount', 'lastSequence', 'updatedAt', 'updatedBy']) &&
+        data.id == 'admin_guard' &&
+        data.activeAdminCount is number &&
+        data.activeAdminCount >= 0 &&
+        data.lastSequence is number &&
+        data.lastSequence >= 0 &&
+        isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        (!('updatedAt' in data) || (data.updatedAt is string || data.updatedAt is timestamp));
+    }
+
     // Business Root Document Validator
     function isValidBusiness(data) {
       return data.size() <= 50 &&
         isValidOptionalString(data, 'businessName', 1, 150) &&
         isValidOptionalString(data, 'tradeName', 1, 150) &&
         isValidOptionalString(data, 'name', 1, 150);
+    }
+
+    // Sequential Counter Document Validator
+    function isValidCounter(data, counterId) {
+      return counterId is string &&
+        counterId.size() >= 1 &&
+        counterId.size() <= 64 &&
+        data.keys().hasOnly([
+          'lastSeq', 'prefix', 'updatedAt', 'updatedBy', 'status',
+          'startedAt', 'startedBy', 'completedAt', 'total', 'count',
+          'maxSeq', 'maxSeqPerFy', 'migrated', 'alreadyPresent',
+          'totalScanned', 'ownerToken', 'leaseExpiresAt', 'renewedAt',
+          'lastInvoiceId', 'lastInvoiceNumber'
+        ]) &&
+        (!('lastSeq' in data) || (data.lastSeq is number && data.lastSeq >= 0)) &&
+        isValidOptionalString(data, 'prefix', 1, 50) &&
+        isValidOptionalString(data, 'updatedBy', 1, 128) &&
+        isValidOptionalString(data, 'updatedAt', 1, 64) &&
+        isValidOptionalString(data, 'status', 1, 30) &&
+        isValidOptionalString(data, 'ownerToken', 1, 128) &&
+        isValidOptionalString(data, 'leaseExpiresAt', 1, 64) &&
+        isValidOptionalString(data, 'renewedAt', 1, 64) &&
+        isValidOptionalString(data, 'lastInvoiceId', 1, 64) &&
+        isValidOptionalString(data, 'lastInvoiceNumber', 1, 64);
+    }
+
+    // Convert invoiceNumber forward slashes to underscores for valid document IDs
+    function getReservationDocId(invoiceNumber) {
+      return invoiceNumber.replace('/', '_').replace('/', '_');
+    }
+
+    // Validate financialYear matches invoiceDate (Indian GST fiscal calendar Apr 1 - Mar 31)
+    function isValidFinancialYearForDate(dateStr, fy) {
+      let yr = dateStr[0:4];
+      let mo = dateStr[5:7];
+      return dateStr.size() >= 10 &&
+        ((mo in ['04','05','06','07','08','09','10','11','12'] && fy.matches('^' + yr + '-[0-9]{2}$')) ||
+         (mo in ['01','02','03'] && fy.matches('^[0-9]{4}-' + yr[2:4] + '$')));
+    }
+
+    // Invoice Number Uniqueness Reservation Document Validator
+    function isValidInvoiceReservation(data, reservationId) {
+      return reservationId is string &&
+        reservationId.size() >= 1 &&
+        reservationId.size() <= 64 &&
+        data.keys().hasAll(['invoiceId', 'invoiceNumber', 'financialYear', 'createdAt', 'createdBy']) &&
+        data.keys().hasOnly(['invoiceId', 'invoiceNumber', 'financialYear', 'createdAt', 'createdBy']) &&
+        data.invoiceId is string &&
+        data.invoiceId.size() >= 1 &&
+        data.invoiceId.size() <= 64 &&
+        data.invoiceNumber is string &&
+        data.invoiceNumber.size() >= 1 &&
+        data.invoiceNumber.size() <= 64 &&
+        data.financialYear is string &&
+        data.financialYear.matches('^[0-9]{4}-[0-9]{2}$') &&
+        getReservationDocId(data.invoiceNumber) == reservationId;
     }
 
     // ===============================================================
@@ -349,15 +549,20 @@ service cloud.firestore {
 
         // Active administrators can update other members.
         // Members cannot modify their own document (prevents self-role/status escalation).
+        // Primary Administrator CANNOT be demoted or disabled.
         allow update: if isAdmin(businessId) &&
                          request.auth.uid != uid &&
                          isValidMember(request.resource.data, uid) &&
-                         areImmutableMemberFieldsUnchanged();
+                         areImmutableMemberFieldsUnchanged() &&
+                         !(isPrimaryAdmin(businessId, uid) &&
+                           (request.resource.data.role != 'admin' || request.resource.data.status != 'active'));
 
         // Active administrators can delete other members.
         // Administrators cannot delete their own document (prevents self-lockout).
+        // Primary Administrator CANNOT be deleted.
         allow delete: if isAdmin(businessId) &&
-                         request.auth.uid != uid;
+                         request.auth.uid != uid &&
+                         !isPrimaryAdmin(businessId, uid);
       }
 
       // -------------------------------------------------------------
@@ -368,8 +573,58 @@ service cloud.firestore {
         allow read: if isActiveMember(businessId);
 
         // Active members (Admin, Manager, Cashier) can create invoices
+        // 1. Drafts are exempt from counter initialization to allow offline/provisional staging.
+        // 2. Administrator historical migration import is ONLY allowed during active migration lock.
+        // 3. Permanent normal billing invoices (Admin, Manager, Cashier) must be atomically linked
+        //    to a matching counter increment and a uniqueness reservation in the same transaction.
         allow create: if isActiveMember(businessId) &&
-                         isValidInvoice(request.resource.data, invoiceId);
+                         request.resource.data.keys().hasOnly([
+                           'id', 'invoiceNumber', 'transactionType', 'invoiceDate', 'dueDate',
+                           'paymentStatus', 'paymentMode', 'placeOfSupply', 'reverseCharge',
+                           'poNumber', 'ewayBillNo', 'irn',
+                           'customer', 'items', 'scrapExchange', 'additionalDiscount',
+                           'roundOffManual', 'netPayable', 'notes', 'createdAt', 'savedAt',
+                           'createdBy', 'updatedAt', 'updatedBy', 'financialYear', 'businessSnapshot'
+                         ]) &&
+                         isValidInvoice(request.resource.data, invoiceId) &&
+                         (
+                           // Draft invoices are exempt from counter and uniqueness reservations
+                           request.resource.data.paymentStatus == 'Draft' ||
+
+                           // Administrator historical migration import:
+                           // Strictly permitted ONLY when the administrator holds the active migration lock
+                           // and commits the uniqueness reservation document in the same operation.
+                           (
+                             isAdmin(businessId) &&
+                             exists(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status) &&
+                             get(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status).data.status == 'in_progress' &&
+                             get(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status).data.startedBy == request.auth.uid &&
+                             existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoice_numbers/$(getReservationDocId(request.resource.data.invoiceNumber)))
+                           ) ||
+
+                           // Normal Billing (Applies equally to Admin, Manager, and Cashier):
+                           // - Financial year strictly matches invoice date (Apr 1 - Mar 31)
+                           // - Counter document must exist and migration must not be active
+                           // - Counter increment and invoice must match bi-directionally
+                           // - Uniqueness reservation must be created in the same transaction
+                           (
+                             ('financialYear' in request.resource.data &&
+                              isValidFinancialYearForDate(request.resource.data.invoiceDate, request.resource.data.financialYear) &&
+                              exists(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear))) &&
+                             (
+                               !exists(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status) ||
+                               get(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status).data.status != 'in_progress'
+                             ) &&
+                             (
+                               existsAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)) &&
+                               ('lastInvoiceId' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data) &&
+                               (getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data.lastInvoiceId == invoiceId) &&
+                               ('lastInvoiceNumber' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data) &&
+                               (getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data.lastInvoiceNumber == request.resource.data.invoiceNumber)
+                             ) &&
+                             existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoice_numbers/$(getReservationDocId(request.resource.data.invoiceNumber)))
+                           )
+                         );
 
         // Role-based Update Permissions:
         // - Admin: can update any valid invoice (retains authorized correction rights).
@@ -380,12 +635,12 @@ service cloud.firestore {
         // - Cashier: STRICTLY DENIED from updating any invoice.
         // - In all cases, immutable fields (id, invoiceNumber, createdAt, createdBy) cannot change.
         allow update: if isActiveMember(businessId) &&
+                         (getMemberDoc(businessId).data.role in ['admin', 'manager']) &&
                          isValidInvoice(request.resource.data, invoiceId) &&
                          areImmutableInvoiceFieldsUnchanged() &&
                          (
-                           isAdmin(businessId) ||
+                           getMemberDoc(businessId).data.role == 'admin' ||
                            (
-                             isManager(businessId) &&
                              !(resource.data.paymentStatus in ['Paid', 'Cancelled']) &&
                              (
                                resource.data.paymentStatus != 'Pending' ||
@@ -446,18 +701,200 @@ service cloud.firestore {
       // 5. Store Settings Collection: /settings/{settingId}
       // -------------------------------------------------------------
       match /settings/{settingId} {
-        // Active members can read store settings and print configurations
+        // Restricted configurations: ONLY administrators can read financial_details and admin_config
+        // General settings (business_profile, print_config, etc.): readable by active staff
+        allow read: if (settingId == 'financial_details' || settingId == 'admin_config')
+                      ? isAdmin(businessId)
+                      : isActiveMember(businessId);
+
+        // Protected Admin Config can NEVER be created, updated, or deleted by clients directly
+        // Only trusted backend / Admin SDK or recovery scripts can manage admin_config
+        allow create: if settingId == 'admin_config'
+                        ? false
+                        : (isAdmin(businessId) &&
+                           (settingId == 'business_profile'
+                             ? isValidBusinessSettings(request.resource.data, settingId)
+                             : settingId == 'financial_details'
+                               ? isValidFinancialDetails(request.resource.data, settingId)
+                               : settingId == 'admin_guard'
+                                 ? isValidAdminGuard(request.resource.data, settingId)
+                                 : isValidSetting(request.resource.data, settingId)));
+
+        allow update: if settingId == 'admin_config'
+                        ? false
+                        : (isAdmin(businessId) &&
+                           (settingId == 'business_profile'
+                             ? (isValidBusinessSettings(request.resource.data, settingId) &&
+                                (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+                                (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy))
+                             : settingId == 'financial_details'
+                               ? (isValidFinancialDetails(request.resource.data, settingId) &&
+                                  (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+                                  (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy))
+                               : settingId == 'admin_guard'
+                                 ? isValidAdminGuard(request.resource.data, settingId)
+                                 : isValidSetting(request.resource.data, settingId)));
+
+        allow delete: if settingId == 'admin_config' ? false : isAdmin(businessId);
+      }
+
+      // -------------------------------------------------------------
+      // 6. Sequential Counters Collection: /counters/{counterId}
+      // -------------------------------------------------------------
+      match /counters/{counterId} {
+        // Active members (Admin, Manager, Cashier) can read sequential counters
         allow read: if isActiveMember(businessId);
 
-        // Only administrators can modify business & printer configuration
-        // Managers and Cashiers are strictly denied from modifying settings
+        // Only administrators can create / initialize counter documents
+        // Cashiers and Managers CANNOT initialize counters or create arbitrary counters
         allow create: if isAdmin(businessId) &&
-                         isValidSetting(request.resource.data, settingId);
+                         isValidCounter(request.resource.data, counterId);
 
-        allow update: if isAdmin(businessId) &&
-                         isValidSetting(request.resource.data, settingId);
+        // Update Permissions:
+        // - Admin: can update counters (for maintenance, migration, or recovery)
+        //          guarded against sequence rollbacks (request.lastSeq >= resource.lastSeq)
+        // - Manager & Cashier:
+        //     * Strictly sequential monotonic increment: lastSeq == resource.data.lastSeq + 1
+        //     * Must preserve prefix: (!('prefix' in resource.data) || request.resource.data.prefix == resource.data.prefix)
+        //     * Audit identity verified: (!('updatedBy' in request.resource.data) || request.resource.data.updatedBy == request.auth.uid)
+        //     * Bi-directional transaction linkage: must correspond to a valid permanent invoice in the same transaction
+        //     * Number verification: lastInvoiceNumber must match prefix + formatted sequential number
+        allow update: if isActiveMember(businessId) &&
+                         isValidCounter(request.resource.data, counterId) &&
+                         (
+                           (
+                             isAdmin(businessId) &&
+                             (
+                               // 1. Admin maintenance / migration seeding / lock renewal (no new lastInvoiceId being linked)
+                               (!('lastInvoiceId' in request.resource.data) ||
+                                ('lastInvoiceId' in resource.data && request.resource.data.lastInvoiceId == resource.data.lastInvoiceId)) ||
+                               // 2. Admin normal billing: strictly sequential increment matching invoice
+                               (
+                                 request.resource.data.lastSeq == resource.data.lastSeq + 1 &&
+                                 (!('prefix' in resource.data) || request.resource.data.prefix == resource.data.prefix) &&
+                                 ('lastInvoiceNumber' in request.resource.data && request.resource.data.lastInvoiceNumber is string) &&
+                                 request.resource.data.lastInvoiceNumber.matches('^' + resource.data.prefix + '0*' + string(request.resource.data.lastSeq) + '$') &&
+                                 existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)) &&
+                                 getAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)).data.invoiceNumber == request.resource.data.lastInvoiceNumber &&
+                                 getAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)).data.paymentStatus != 'Draft'
+                               )
+                             ) &&
+                             (!('lastSeq' in resource.data) || !('lastSeq' in request.resource.data) || request.resource.data.lastSeq >= resource.data.lastSeq)
+                           ) ||
+                           (
+                             request.resource.data.lastSeq == resource.data.lastSeq + 1 &&
+                             (!('prefix' in resource.data) || request.resource.data.prefix == resource.data.prefix) &&
+                             (!('updatedBy' in request.resource.data) || request.resource.data.updatedBy == request.auth.uid) &&
+                             ('lastInvoiceId' in request.resource.data && request.resource.data.lastInvoiceId is string) &&
+                             (!('lastInvoiceId' in resource.data) || request.resource.data.lastInvoiceId != resource.data.lastInvoiceId) &&
+                             ('lastInvoiceNumber' in request.resource.data && request.resource.data.lastInvoiceNumber is string) &&
+                             request.resource.data.lastInvoiceNumber.matches('^' + resource.data.prefix + '0*' + string(request.resource.data.lastSeq) + '$') &&
+                             existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)) &&
+                             getAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)).data.invoiceNumber == request.resource.data.lastInvoiceNumber &&
+                             getAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.lastInvoiceId)).data.paymentStatus != 'Draft'
+                           )
+                         );
 
+        // Only active administrators can delete counter documents
         allow delete: if isAdmin(businessId);
+      }
+
+      // -------------------------------------------------------------
+      // 7. Invoice Number Reservations: /invoice_numbers/{safeNumber}
+      // -------------------------------------------------------------
+      match /invoice_numbers/{safeNumber} {
+        // Active members can read to check existence or verify availability
+        allow read: if isActiveMember(businessId);
+
+        // Can only be created by an active member if:
+        // 1. It does not already exist (!exists) - document key collision engine prevents duplicates
+        // 2. Data matches schema (isValidInvoiceReservation)
+        // 3. Atomically linked to the invoice document being created in the same transaction:
+        //    existsAfter(invoice) && invoice.invoiceNumber == request.resource.data.invoiceNumber
+        allow create: if isActiveMember(businessId) &&
+                         !exists(/databases/$(database)/documents/businesses/$(businessId)/invoice_numbers/$(safeNumber)) &&
+                         isValidInvoiceReservation(request.resource.data, safeNumber) &&
+                         existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.invoiceId)) &&
+                         getAfter(/databases/$(database)/documents/businesses/$(businessId)/invoices/$(request.resource.data.invoiceId)).data.invoiceNumber == request.resource.data.invoiceNumber;
+
+        // PERMANENT: Reservations can NEVER be updated or deleted under any circumstances (even by Admin!)
+        // This guarantees that even if an invoice is deleted, its invoice number can NEVER be reused.
+        allow update, delete: if false;
+      }
+
+      // -------------------------------------------------------------
+      // 8. Pending Staff Registrations: /pending_registrations/{uid}
+      // -------------------------------------------------------------
+      match /pending_registrations/{uid} {
+        // Users can read their own pending status; Admins can inspect any
+        allow get: if isAuthenticated() && (request.auth.uid == uid || isAdmin(businessId));
+
+        // Only active administrators can list all pending registrations
+        allow list: if isAdmin(businessId);
+
+        // Authenticated user can submit their own pending registration (status MUST be 'pending')
+        allow create: if isAuthenticated() &&
+                         request.auth.uid == uid &&
+                         isValidPendingRegistration(request.resource.data, uid) &&
+                         request.resource.data.status == 'pending';
+
+        // Only active administrators can update pending registration (e.g. approve or reject)
+        // Target user CANNOT self-approve (request.auth.uid != uid)
+        allow update: if isAdmin(businessId) &&
+                         request.auth.uid != uid &&
+                         isValidPendingRegistration(request.resource.data, uid) &&
+                         request.resource.data.uid == resource.data.uid &&
+                         request.resource.data.requestedAt == resource.data.requestedAt;
+
+        // Only active administrators can delete pending registrations
+        allow delete: if isAdmin(businessId);
+      }
+
+      // -------------------------------------------------------------
+      // 9. Staff Audit Logs: /staff_audit_logs/{logId}
+      // -------------------------------------------------------------
+      match /staff_audit_logs/{logId} {
+        // Only active administrators can read staff administrative audit logs
+        allow read: if isAdmin(businessId);
+
+        // Only active administrators can record audit logs;
+        // Strict anti-forgery guards:
+        // 1. actorUid matches request.auth.uid (cannot forge actorUid)
+        // 2. actorEmail matches request.auth.token.email if present (cannot forge actorEmail)
+        // 3. Standalone fabrication prevented: audit log must match corresponding member/registration state
+        allow create: if isAdmin(businessId) &&
+                         isValidStaffAuditLog(request.resource.data, logId) &&
+                         request.resource.data.actorUid == request.auth.uid &&
+                         (!('email' in request.auth.token) || request.resource.data.actorEmail == request.auth.token.email) &&
+                         (
+                           (request.resource.data.action == 'ROLE_CHANGED' &&
+                            ('newValue' in request.resource.data) &&
+                            request.resource.data.newValue is map &&
+                            ('role' in request.resource.data.newValue) &&
+                            existsAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)) &&
+                            getAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)).data.role == request.resource.data.newValue.role) ||
+                           (request.resource.data.action == 'STATUS_CHANGED' &&
+                            ('newValue' in request.resource.data) &&
+                            request.resource.data.newValue is map &&
+                            ('status' in request.resource.data.newValue) &&
+                            existsAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)) &&
+                            getAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)).data.status == request.resource.data.newValue.status) ||
+                           (request.resource.data.action == 'STAFF_APPROVED' &&
+                            ('newValue' in request.resource.data) &&
+                            request.resource.data.newValue is map &&
+                            ('role' in request.resource.data.newValue) &&
+                            !exists(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)) &&
+                            existsAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)) &&
+                            getAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)).data.role == request.resource.data.newValue.role) ||
+                           (request.resource.data.action == 'STAFF_REJECTED' &&
+                            existsAfter(/databases/$(database)/documents/businesses/$(businessId)/pending_registrations/$(request.resource.data.targetUid)) &&
+                            getAfter(/databases/$(database)/documents/businesses/$(businessId)/pending_registrations/$(request.resource.data.targetUid)).data.status == 'rejected') ||
+                           (request.resource.data.action == 'STAFF_REMOVED' &&
+                            !existsAfter(/databases/$(database)/documents/businesses/$(businessId)/members/$(request.resource.data.targetUid)))
+                         );
+
+        // STRICTLY IMMUTABLE: Staff audit logs can NEVER be updated or deleted by anyone
+        allow update, delete: if false;
       }
     }
 

@@ -13,6 +13,9 @@ import {
   Eye,
   Calendar,
   ChevronRight,
+  RefreshCw,
+  CloudOff,
+  AlertCircle,
 } from 'lucide-react';
 import { INVOICE_STATUSES } from '../data/mockData';
 import { formatINR } from '../utils/numberToWords';
@@ -23,18 +26,23 @@ import {
 import { useAuth } from '../context/useAuth';
 
 export default function AllInvoicesView({
-  invoices,
+  invoices = [],
   onBackToDashboard,
   onNewInvoice,
   onOpenInvoice,
   onDeleteInvoice,
+  onChangeStatus: _onChangeStatus,
+  syncStatus = 'synced',
+  syncError = null,
+  onRefresh,
+  loading = false,
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [sortBy, setSortBy] = useState('newest'); // 'newest', 'oldest', 'amount-high', 'amount-low'
   const authContext = useAuth();
-  const canDelete = authContext?.permissions ? authContext.permissions.canDeleteInvoice : true;
+  const canDelete = Boolean(authContext?.permissions?.canDeleteInvoice);
 
   const filteredInvoices = useMemo(() => {
     return invoices
@@ -132,7 +140,33 @@ export default function AllInvoicesView({
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div>
-            <h1 className="text-lg font-bold text-white tracking-tight">All Invoices & Records</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-lg font-bold text-white tracking-tight">All Invoices & Records</h1>
+              {syncStatus === 'synced' && (
+                <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Cloud Synced
+                </span>
+              )}
+              {syncStatus === 'syncing' && (
+                <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                  Syncing...
+                </span>
+              )}
+              {syncStatus === 'offline' && (
+                <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-700/50 text-slate-300 border border-slate-600">
+                  <CloudOff className="w-2.5 h-2.5 text-slate-400" />
+                  Offline Cache
+                </span>
+              )}
+              {syncStatus === 'error' && (
+                <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20" title={syncError || 'Sync error'}>
+                  <AlertCircle className="w-2.5 h-2.5" />
+                  Sync Error
+                </span>
+              )}
+            </div>
             <p className="text-xs text-slate-400">
               Total {invoices.length} invoices registered in TPS BATTERYS HOUSE system
             </p>
@@ -140,6 +174,19 @@ export default function AllInvoicesView({
         </div>
 
         <div className="flex items-center gap-2">
+          {onRefresh && (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={loading}
+              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs flex items-center gap-1.5 border border-slate-700 transition-colors disabled:opacity-50"
+              title="Refresh invoices from Firestore"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-amber-400' : ''}`} />
+              <span className="hidden sm:inline text-xs">Refresh</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={onNewInvoice}
