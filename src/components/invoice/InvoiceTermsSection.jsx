@@ -28,9 +28,9 @@ export default function InvoiceTermsSection({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Customer Terms & Conditions */}
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5">
-            <FileText className="w-3.5 h-3.5 text-amber-400" />
+            <FileText className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>Customer-Facing Terms & Conditions</span>
           </label>
           <textarea
@@ -38,7 +38,7 @@ export default function InvoiceTermsSection({
             value={invoice?.notes || ''}
             onChange={(e) => onUpdateField('notes', e.target.value)}
             placeholder="1. Goods once sold will not be taken back without original warranty card. 2. Subject to Palakkad jurisdiction."
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none transition-all resize-y"
           />
           <span className="text-[10px] text-slate-500">
             Printed at the bottom of the A4 Tax Invoice document.
@@ -46,9 +46,9 @@ export default function InvoiceTermsSection({
         </div>
 
         {/* Private Internal Staff Notes */}
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5">
-            <Lock className="w-3.5 h-3.5 text-amber-400" />
+            <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>Private Staff / Delivery Notes (Internal Only)</span>
           </label>
           <textarea
@@ -56,10 +56,10 @@ export default function InvoiceTermsSection({
             value={invoice?.staffNotes || ''}
             onChange={(e) => onUpdateField('staffNotes', e.target.value)}
             placeholder="e.g. Technician Raju to install inverter combo tomorrow morning. Battery scrap collected on site."
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl p-3 text-xs text-white placeholder-slate-500 focus:outline-none transition-all resize-y"
           />
           <span className="text-[10px] text-slate-500 flex items-center gap-1">
-            <Info className="w-3 h-3 text-amber-500/70" />
+            <Info className="w-3 h-3 text-amber-500/70 shrink-0" />
             <span>Internal only. NEVER printed on customer bills or shared via WhatsApp.</span>
           </span>
         </div>

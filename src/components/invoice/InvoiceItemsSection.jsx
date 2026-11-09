@@ -182,19 +182,19 @@ export default function InvoiceItemsSection({
 
       {/* DESKTOP TABLE VIEW (>= 1024px) */}
       <div className="hidden lg:block overflow-x-auto border border-slate-800 rounded-xl">
-        <table className="w-full text-left border-collapse text-xs">
+        <table className="w-full text-left border-collapse text-xs min-w-[1060px]">
           <thead>
             <tr className="bg-slate-950/80 border-b border-slate-800 text-slate-400 uppercase tracking-wider text-[10px] font-semibold">
               <th className="py-2.5 px-2 text-center w-8">#</th>
               <th className="py-2.5 px-2 w-32">Category</th>
-              <th className="py-2.5 px-2">Item Description & Specs</th>
+              <th className="py-2.5 px-2 min-w-[260px]">Item Description & Specs</th>
               <th className="py-2.5 px-2 text-center w-20">HSN/SAC</th>
               <th className="py-2.5 px-2 text-center w-28">Qty & Unit</th>
               <th className="py-2.5 px-2 text-right w-28">Unit Price (₹)</th>
               <th className="py-2.5 px-2 text-center w-20">Tax Mode</th>
               <th className="py-2.5 px-2 text-center w-20">GST %</th>
               <th className="py-2.5 px-2 text-right w-20">Disc (₹)</th>
-              <th className="py-2.5 px-2 text-right w-24">Taxable (₹)</th>
+              <th className="py-2.5 px-2 text-right w-28">Taxable (₹)</th>
               <th className="py-2.5 px-2 text-right w-28">Total (₹)</th>
               <th className="py-2.5 px-2 text-center w-10">Act</th>
             </tr>

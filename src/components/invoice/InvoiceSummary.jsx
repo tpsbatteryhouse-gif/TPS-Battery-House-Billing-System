@@ -99,14 +99,14 @@ export default function InvoiceSummary({
           {/* Gross Item Subtotal */}
           <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
             <span className="font-sans">Gross Line Items Subtotal</span>
-            <span className="text-slate-200 font-bold">₹{formatNumber(totals.totalGross)}</span>
+            <span className="text-slate-200 font-bold whitespace-nowrap">₹{formatNumber(totals.totalGross)}</span>
           </div>
 
           {/* Item Discounts */}
           {totals.extraDiscount > 0 && (
             <div className="flex items-center justify-between text-amber-400/90 py-1 border-b border-slate-800/60">
               <span className="font-sans">Special Invoice Discount</span>
-              <span className="font-bold">-₹{formatNumber(totals.extraDiscount)}</span>
+              <span className="font-bold whitespace-nowrap">-₹{formatNumber(totals.extraDiscount)}</span>
             </div>
           )}
 
@@ -114,31 +114,31 @@ export default function InvoiceSummary({
           {totals.scrapDiscount > 0 && (
             <div className="flex items-center justify-between text-amber-400 py-1 border-b border-slate-800/60">
               <span className="font-sans">Old Battery Scrap Buyback Deduction</span>
-              <span className="font-bold">-₹{formatNumber(totals.scrapDiscount)}</span>
+              <span className="font-bold whitespace-nowrap">-₹{formatNumber(totals.scrapDiscount)}</span>
             </div>
           )}
 
           {/* Taxable Subtotal */}
           <div className="flex items-center justify-between text-slate-300 py-1 border-b border-slate-800/60">
             <span className="font-sans font-semibold">Total Taxable Subtotal</span>
-            <span className="text-white font-bold">₹{formatNumber(totals.totalTaxableValue)}</span>
+            <span className="text-white font-bold whitespace-nowrap">₹{formatNumber(totals.totalTaxableValue)}</span>
           </div>
 
           {/* Tax Breakdown */}
           {isInterstate ? (
             <div className="flex items-center justify-between text-purple-400 py-1 border-b border-slate-800/60">
               <span className="font-sans">Integrated Tax (IGST)</span>
-              <span className="font-bold">₹{formatNumber(totals.totalIgst)}</span>
+              <span className="font-bold whitespace-nowrap">₹{formatNumber(totals.totalIgst)}</span>
             </div>
           ) : (
             <>
               <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
                 <span className="font-sans">Central Tax (CGST)</span>
-                <span className="text-slate-300 font-bold">₹{formatNumber(totals.totalCgst)}</span>
+                <span className="text-slate-300 font-bold whitespace-nowrap">₹{formatNumber(totals.totalCgst)}</span>
               </div>
               <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
                 <span className="font-sans">State Tax (SGST)</span>
-                <span className="text-slate-300 font-bold">₹{formatNumber(totals.totalSgst)}</span>
+                <span className="text-slate-300 font-bold whitespace-nowrap">₹{formatNumber(totals.totalSgst)}</span>
               </div>
             </>
           )}
@@ -146,13 +146,13 @@ export default function InvoiceSummary({
           {/* Total Tax Amount */}
           <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
             <span className="font-sans">Total GST Amount</span>
-            <span className="text-slate-200 font-bold">₹{formatNumber(totals.totalTax)}</span>
+            <span className="text-slate-200 font-bold whitespace-nowrap">₹{formatNumber(totals.totalTax)}</span>
           </div>
 
           {/* Round-off Adjustment */}
           <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
             <span className="font-sans">Round-Off Adjustment</span>
-            <span className="text-slate-300 font-bold">
+            <span className="text-slate-300 font-bold whitespace-nowrap">
               {totals.roundOff >= 0 ? `+₹${formatNumber(totals.roundOff)}` : `-₹${formatNumber(Math.abs(totals.roundOff))}`}
             </span>
           </div>
@@ -162,14 +162,14 @@ export default function InvoiceSummary({
             <span className="font-sans text-sm sm:text-base font-extrabold text-white uppercase tracking-tight">
               Final Net Payable:
             </span>
-            <div className="text-2xl sm:text-3xl font-black text-amber-400 tracking-tight self-end sm:self-auto">
+            <div className="text-2xl sm:text-3xl font-black text-amber-400 tracking-tight self-end sm:self-auto whitespace-nowrap">
               ₹{formatNumber(totals.netPayable)}
             </div>
           </div>
 
           {/* Amount in Words */}
           {totals.amountInWords && (
-            <div className="pt-2 text-[11px] font-sans italic text-slate-400 border-t border-slate-800/40">
+            <div className="pt-2 text-[11px] font-sans italic text-slate-400 border-t border-slate-800/40 break-words leading-relaxed">
               <strong className="text-slate-300 not-italic">In Words:</strong> {totals.amountInWords}
             </div>
           )}

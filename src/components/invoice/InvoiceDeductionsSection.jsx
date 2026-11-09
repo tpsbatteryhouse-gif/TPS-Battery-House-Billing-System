@@ -129,16 +129,16 @@ export default function InvoiceDeductionsSection({
               </span>
             </div>
 
-            <div className="space-y-1">
-              <div className="flex justify-between items-center">
-                <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
-                  <Scale className="w-3.5 h-3.5 text-slate-400" />
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center justify-between gap-1">
+                <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1 shrink-0">
+                  <Scale className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   <span>Manual Round-off Adjustment (₹)</span>
                 </label>
                 <button
                   type="button"
                   onClick={() => onUpdateField('roundOffManual', null)}
-                  className="text-[10px] text-amber-400 hover:underline"
+                  className="text-[10px] text-amber-400 hover:underline shrink-0"
                 >
                   Reset to Auto
                 </button>

@@ -230,9 +230,9 @@ export default function InvoiceForm({
       />
 
       {/* 2. Customer Particulars & Invoice Metadata Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* Customer Particulars (2 cols on large screen) */}
-        <div className="lg:col-span-2">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Customer Particulars (7 cols on large desktop, 12 on mobile/tablet) */}
+        <div className="lg:col-span-7">
           <CustomerDetailsSection
             customer={invoice.customer}
             onUpdateField={updateField}
@@ -243,8 +243,8 @@ export default function InvoiceForm({
           />
         </div>
 
-        {/* Invoice Metadata (1 col on large screen) */}
-        <div className="lg:col-span-1">
+        {/* Invoice Metadata & Terms (5 cols on large desktop, 12 on mobile/tablet) */}
+        <div className="lg:col-span-5">
           <InvoiceMetadataSection
             invoice={invoice}
             onUpdateField={updateField}

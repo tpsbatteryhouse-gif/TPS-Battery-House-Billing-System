@@ -8,7 +8,6 @@ import {
   calculateInvoiceTotals,
   buildUpiUri,
   verifyInvoiceFinancialConsistency,
-  FINANCIAL_VALIDATION_STATUS,
 } from '../src/utils/gstCalculations.js';
 import { generateVectorPdf, printInvoicePdf } from '../src/utils/pdfExport.js';
 

@@ -228,7 +228,7 @@ export default function InvoiceItemRow({
       </td>
 
       {/* 2. Category */}
-      <td className="py-3 px-2">
+      <td className="py-3 px-2 w-32 min-w-[128px]">
         <div className="flex items-center gap-1.5">
           <span className={`p-1.5 rounded-lg border ${catCfg.badgeClass}`}>
             {getCatIcon(cat, 'w-3.5 h-3.5')}
@@ -248,7 +248,7 @@ export default function InvoiceItemRow({
       </td>
 
       {/* 3. Description & Specs */}
-      <td className="py-3 px-2">
+      <td className="py-3 px-2 min-w-[260px]">
         <div className="space-y-1">
           <input
             type="text"
@@ -369,12 +369,12 @@ export default function InvoiceItemRow({
       </td>
 
       {/* 10. Taxable Amount */}
-      <td className="py-3 px-2 text-right font-mono text-slate-300 w-24">
+      <td className="py-3 px-2 text-right font-mono text-slate-300 w-28 min-w-[100px] whitespace-nowrap">
         ₹{formatNumber(computed.taxableValue)}
       </td>
 
       {/* 11. Line Total */}
-      <td className="py-3 px-2 text-right font-mono font-bold text-white w-28">
+      <td className="py-3 px-2 text-right font-mono font-bold text-white w-28 min-w-[100px] whitespace-nowrap">
         ₹{formatNumber(computed.lineTotal)}
       </td>
 

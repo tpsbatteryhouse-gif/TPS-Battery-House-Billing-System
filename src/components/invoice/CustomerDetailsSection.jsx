@@ -206,7 +206,7 @@ export default function CustomerDetailsSection({
       {/* Customer Particulars Form Grid */}
       <div className="grid grid-cols-12 gap-3 sm:gap-4 text-xs">
         {/* Name */}
-        <div className="col-span-12 sm:col-span-6 space-y-1">
+        <div className="col-span-12 sm:col-span-6 space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300">
             {isB2B ? 'Buyer / Entity Name *' : 'Customer Name *'}
           </label>
@@ -215,12 +215,12 @@ export default function CustomerDetailsSection({
             value={customer?.name || ''}
             onChange={(e) => onUpdateField('customer.name', e.target.value)}
             placeholder={isB2B ? 'e.g. Kerala Solar & Power Solutions' : 'e.g. Rajesh Kumar'}
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* Phone */}
-        <div className="col-span-12 sm:col-span-6 space-y-1">
+        <div className="col-span-12 sm:col-span-6 space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300">
             Phone / Mobile Number
           </label>
@@ -232,12 +232,12 @@ export default function CustomerDetailsSection({
               onUpdateField('customer.phone', val);
             }}
             placeholder="e.g. +91 9846830532"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* Billing Address */}
-        <div className="col-span-12 sm:col-span-6 space-y-1">
+        <div className="col-span-12 sm:col-span-6 space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300">
             Billing Address
           </label>
@@ -246,12 +246,12 @@ export default function CustomerDetailsSection({
             value={customer?.address || ''}
             onChange={(e) => onUpdateField('customer.address', e.target.value)}
             placeholder="Building, Street, Junction..."
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* Shipping Address */}
-        <div className="col-span-12 sm:col-span-6 space-y-1">
+        <div className="col-span-12 sm:col-span-6 space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300">
             Shipping / Delivery Address (Optional)
           </label>
@@ -260,36 +260,36 @@ export default function CustomerDetailsSection({
             value={customer?.shippingAddress || ''}
             onChange={(e) => onUpdateField('customer.shippingAddress', e.target.value)}
             placeholder="Leave blank if identical to billing address"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* City */}
-        <div className="col-span-6 sm:col-span-3 space-y-1">
+        <div className="col-span-6 sm:col-span-3 space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300">City / Town</label>
           <input
             type="text"
             value={customer?.city || ''}
             onChange={(e) => onUpdateField('customer.city', e.target.value)}
             placeholder="Thrithala"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* District */}
-        <div className="col-span-6 sm:col-span-3 space-y-1">
+        <div className="col-span-6 sm:col-span-3 space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300">District</label>
           <input
             type="text"
             value={customer?.district || ''}
             onChange={(e) => onUpdateField('customer.district', e.target.value)}
             placeholder="Palakkad"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* PIN Code */}
-        <div className="col-span-6 sm:col-span-3 space-y-1">
+        <div className="col-span-6 sm:col-span-3 space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300">PIN Code</label>
           <input
             type="text"
@@ -298,25 +298,25 @@ export default function CustomerDetailsSection({
               onUpdateField('customer.pincode', e.target.value.replace(/\D/g, '').slice(0, 6))
             }
             placeholder="679534"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* State Code */}
-        <div className="col-span-6 sm:col-span-3 space-y-1">
+        <div className="col-span-6 sm:col-span-3 space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300">State Code</label>
           <input
             type="text"
             value={customer?.stateCode || '32'}
             onChange={(e) => onUpdateField('customer.stateCode', e.target.value)}
             placeholder="32"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* Customer GSTIN */}
-        <div className="col-span-12 sm:col-span-6 space-y-1">
-          <div className="flex justify-between items-center">
+        <div className="col-span-12 sm:col-span-6 space-y-1.5 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
             <label className="text-[11px] font-medium text-slate-300">
               {isB2B ? 'Customer GSTIN (Required for B2B ITC) *' : 'Customer GSTIN (If registered)'}
             </label>
@@ -342,12 +342,12 @@ export default function CustomerDetailsSection({
               }
             }}
             placeholder="e.g. 32AABCK9921B1Z2"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono uppercase text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono uppercase text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* Customer PAN */}
-        <div className="col-span-12 sm:col-span-6 space-y-1">
+        <div className="col-span-12 sm:col-span-6 space-y-1.5 min-w-0">
           <label className="text-[11px] font-medium text-slate-300">
             Customer PAN (Optional)
           </label>
@@ -356,7 +356,7 @@ export default function CustomerDetailsSection({
             value={customer?.pan || ''}
             onChange={(e) => onUpdateField('customer.pan', e.target.value.toUpperCase())}
             placeholder="e.g. AABCK9921B"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono uppercase text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono uppercase text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
       </div>

@@ -38,43 +38,43 @@ export default function InvoiceMetadataSection({
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-12 gap-3 sm:gap-4 text-xs">
+      {/* Responsive 2-column internal grid for metadata fields */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4 text-xs">
         {/* Invoice Date */}
-        <div className="col-span-12 sm:col-span-6 lg:col-span-4 space-y-1">
-          <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
-            <Calendar className="w-3.5 h-3.5 text-amber-400" />
+        <div className="space-y-1.5 min-w-0">
+          <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span>Invoice Date *</span>
           </label>
           <input
             type="date"
             value={invoice?.invoiceDate || ''}
             onChange={(e) => onUpdateField('invoiceDate', e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none transition-all"
           />
         </div>
 
         {/* Due Date & Quick Terms */}
-        <div className="col-span-12 sm:col-span-6 lg:col-span-4 space-y-1">
-          <div className="flex justify-between items-center">
-            <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-amber-400" />
+        <div className="space-y-1.5 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-1">
+            <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5 shrink-0">
+              <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span>Payment Due Date</span>
             </label>
             {/* Quick Terms Chips */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => handleQuickTerms(0)}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-                title="Due on receipt"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+                title="Due on receipt (Immediate)"
               >
                 Immediate
               </button>
               <button
                 type="button"
                 onClick={() => handleQuickTerms(15)}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
                 title="Due in 15 days"
               >
                 15 Days
@@ -82,7 +82,7 @@ export default function InvoiceMetadataSection({
               <button
                 type="button"
                 onClick={() => handleQuickTerms(30)}
-                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
                 title="Due in 30 days"
               >
                 30 Days
@@ -93,19 +93,19 @@ export default function InvoiceMetadataSection({
             type="date"
             value={invoice?.dueDate || ''}
             onChange={(e) => onUpdateField('dueDate', e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none transition-all"
           />
         </div>
 
         {/* Reverse Charge */}
-        <div className="col-span-12 sm:col-span-6 lg:col-span-4 space-y-1">
-          <label className="text-[11px] font-medium text-slate-300">
+        <div className="space-y-1.5 min-w-0">
+          <label className="text-[11px] font-medium text-slate-300 block truncate">
             Reverse Charge Applicable
           </label>
           <select
             value={invoice?.reverseCharge || 'No'}
             onChange={(e) => onUpdateField('reverseCharge', e.target.value)}
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white focus:outline-none transition-all truncate"
           >
             <option value="No">No (Standard - Forward Charge)</option>
             <option value="Yes">Yes (Reverse Charge Mechanism)</option>
@@ -113,47 +113,47 @@ export default function InvoiceMetadataSection({
         </div>
 
         {/* PO Number */}
-        <div className="col-span-12 sm:col-span-6 lg:col-span-4 space-y-1">
-          <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
-            <Hash className="w-3.5 h-3.5 text-slate-400" />
-            <span>Buyer PO / Work Order No (Optional)</span>
+        <div className="space-y-1.5 min-w-0">
+          <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5 truncate">
+            <Hash className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="truncate">Buyer PO / Work Order No (Optional)</span>
           </label>
           <input
             type="text"
             value={invoice?.poNumber || ''}
             onChange={(e) => onUpdateField('poNumber', e.target.value)}
             placeholder="e.g. PO-2026-891"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* E-Way Bill Number */}
-        <div className="col-span-12 sm:col-span-6 lg:col-span-4 space-y-1">
-          <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
-            <Truck className="w-3.5 h-3.5 text-slate-400" />
-            <span>E-Way Bill Number (Optional)</span>
+        <div className="space-y-1.5 min-w-0">
+          <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5 truncate">
+            <Truck className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="truncate">E-Way Bill Number (Optional)</span>
           </label>
           <input
             type="text"
             value={invoice?.ewayBillNo || ''}
             onChange={(e) => onUpdateField('ewayBillNo', e.target.value)}
             placeholder="e.g. 272584310891"
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
 
         {/* IRN Reference Number */}
-        <div className="col-span-12 sm:col-span-6 lg:col-span-4 space-y-1">
-          <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1">
-            <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400" />
-            <span>IRN / E-Invoice Hash (Optional)</span>
+        <div className="space-y-1.5 min-w-0">
+          <label className="text-[11px] font-medium text-slate-300 flex items-center gap-1.5 truncate">
+            <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="truncate">IRN / E-Invoice Hash (Optional)</span>
           </label>
           <input
             type="text"
             value={invoice?.irn || ''}
             onChange={(e) => onUpdateField('irn', e.target.value)}
             placeholder="e.g. 7a74303e39eb..."
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full min-w-0 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-mono text-white placeholder-slate-500 focus:outline-none transition-all"
           />
         </div>
       </div>
