@@ -39,9 +39,20 @@ export default function InvoiceSummary({
     : 'GST (CGST + SGST included)';
 
   const handleSaveAndPrint = async () => {
+    if (isSaving || isPrinting) return;
     if (onSaveInvoice) {
-      const res = await onSaveInvoice();
-      if (res === false) return;
+      const saved = await onSaveInvoice();
+      if (!saved || saved === false || !saved.invoiceNumber) {
+        // Saving failed, was aborted, or rejected by permissions: do NOT open print dialog
+        return;
+      }
+      // Confirm that the saved invoice has its permanent sequential invoice number
+      if (
+        saved.paymentStatus !== 'Draft' &&
+        (saved.invoiceNumber.startsWith('DRAFT') || saved.invoiceNumber.endsWith('/000') || !saved.invoiceNumber.includes('/'))
+      ) {
+        return;
+      }
     }
     if (onPrint) {
       onPrint();

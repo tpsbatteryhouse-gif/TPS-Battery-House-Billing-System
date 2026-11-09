@@ -336,6 +336,53 @@ export function subscribeInvoices(businessId = DEFAULT_BUSINESS_ID, onNext, onEr
 }
 
 /**
+ * Administrator Counter Initialization Service.
+ * Exclusively authorized for active administrators in accordance with firestore.rules:
+ *   allow create: if isAdmin(businessId) && isValidCounter(request.resource.data, counterId);
+ *
+ * Seeds or initializes the financial-year sequential counter document.
+ */
+export async function initializeInvoiceCounter(
+  businessId = DEFAULT_BUSINESS_ID,
+  fy = getFinancialYear(),
+  initialSeq = 0,
+  prefixInput = null,
+  user = null,
+  dbInstance = db
+) {
+  const prefix = prefixInput || `TPS/${fy}/`;
+  const counterId = `invoices_${fy}`;
+  const counterRef = doc(dbInstance, 'businesses', businessId, 'counters', counterId);
+
+  const snap = await getDoc(counterRef);
+  if (snap.exists()) {
+    return {
+      success: true,
+      alreadyExists: true,
+      counterId,
+      lastSeq: Number(snap.data().lastSeq) || 0,
+      prefix: snap.data().prefix || prefix,
+    };
+  }
+
+  const payload = {
+    lastSeq: Math.max(0, Number(initialSeq) || 0),
+    prefix,
+    updatedAt: new Date().toISOString(),
+    updatedBy: user?.uid || 'admin',
+  };
+
+  await setDoc(counterRef, payload);
+  return {
+    success: true,
+    created: true,
+    counterId,
+    lastSeq: payload.lastSeq,
+    prefix,
+  };
+}
+
+/**
  * Creates an invoice atomically with a sequential counter to prevent number collisions.
  * Uses Firestore transaction to guarantee that two cashiers never get the same number.
  *
@@ -353,7 +400,7 @@ export async function createInvoiceWithCounter(
 ) {
   const firestoreDb = options?.dbInstance || db;
   const invoiceDate = invoiceData.invoiceDate || new Date().toISOString().split('T')[0];
-  const fy = getFinancialYear(invoiceDate);
+  const fy = invoiceData.financialYear || getFinancialYear(invoiceDate);
   const prefix = getInvoicePrefix(options.prefix || 'TPS', invoiceDate);
 
   const counterId = `invoices_${fy}`;
@@ -393,6 +440,26 @@ export async function createInvoiceWithCounter(
     return sanitized;
   }
 
+  // Pre-flight check: ensure the counter exists before starting invoice creation transaction.
+  // firestore.rules requires: exists(/businesses/{businessId}/counters/invoices_{fy})
+  // and restricts counter creation to administrators only.
+  const preSnap = await getDoc(counterRef);
+  if (!preSnap.exists()) {
+    const isAdminUser = Boolean(
+      user?.role === 'admin' ||
+      user?.isAdmin ||
+      user?.permissions?.canManageSettings
+    );
+
+    if (isAdminUser) {
+      await initializeInvoiceCounter(businessId, fy, 0, prefix, user, firestoreDb);
+    } else {
+      throw new Error(
+        `Invoice counter for financial year ${fy} is not initialized. Please ask a store administrator to initialize the invoice counter.`
+      );
+    }
+  }
+
   // 2. Non-draft invoice (or draft with established number): allocate sequential number via transaction
   // Wrapped in a jittered retry loop to resolve concurrent counter contention gracefully
   const maxAttempts = 8;
@@ -400,22 +467,16 @@ export async function createInvoiceWithCounter(
     try {
       return await runTransaction(firestoreDb, async (transaction) => {
         const counterSnap = await transaction.get(counterRef);
-        const legacySnap = await transaction.get(legacyCounterRef);
-        let nextSeq = 1;
-
-        if (counterSnap.exists()) {
-          const data = counterSnap.data();
-          const currentSeq = Number(data.lastSeq) || 0;
-          nextSeq = currentSeq + 1;
-        } else {
-          // If counter is not initialized, check legacy counter fallback
-          if (legacySnap.exists() && legacySnap.data().prefix === prefix) {
-            nextSeq = (Number(legacySnap.data().lastSeq) || 0) + 1;
-          } else {
-            // Counter is uninitialized
-            nextSeq = 1;
-          }
+        if (!counterSnap.exists()) {
+          throw new Error(
+            `Invoice counter for financial year ${fy} does not exist. An administrator must initialize the counter before creating invoices.`
+          );
         }
+
+        const legacySnap = await transaction.get(legacyCounterRef);
+        const data = counterSnap.data();
+        const currentSeq = Number(data.lastSeq) || 0;
+        let nextSeq = currentSeq + 1;
 
         // Determine final invoice number:
         let finalInvNumber = invoiceData.invoiceNumber;
@@ -483,7 +544,12 @@ export async function createInvoiceWithCounter(
         };
 
         transaction.set(counterRef, counterData, { merge: true });
-        if (legacySnap.exists() && legacySnap.data().prefix === prefix) {
+        // Only mirror to legacy counter if it exists, uses matching prefix, and its lastSeq matches currentSeq
+        if (
+          legacySnap.exists() &&
+          legacySnap.data().prefix === prefix &&
+          Number(legacySnap.data().lastSeq) === currentSeq
+        ) {
           transaction.set(legacyCounterRef, counterData, { merge: true });
         }
         transaction.set(reservationRef, reservationData);

@@ -227,6 +227,13 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
 
   // Handle Saving bill from within the Full GST Billing Studio
   const handleSaveInvoiceInEditor = async (statusOverride = null) => {
+    // Validate customer particulars before saving
+    const customerName = (invoice?.customer?.name || '').trim();
+    if (!customerName) {
+      showToast('Please enter customer name before saving.', 'error');
+      return false;
+    }
+
     // Validate invoice form state before saving
     const validation = validateInvoiceBeforePrint(invoice);
     if (!validation.isValid) {
@@ -278,9 +285,20 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
       setIsSavedFeedback(true);
       showToast(`Invoice ${saved.invoiceNumber} saved!`);
       setTimeout(() => setIsSavedFeedback(false), 2500);
+      return saved;
     } catch (err) {
-      console.error('Failed to save invoice in editor:', err);
-      showToast(`Error saving invoice: ${err.message}`);
+      console.error('Failed to save invoice in editor:', {
+        code: err?.code,
+        message: err?.message,
+        operation: 'handleSaveInvoiceInEditor',
+      });
+      const errorCode = err?.code;
+      let displayMessage = err?.message || 'Unknown persistence failure.';
+      if (errorCode === 'permission-denied') {
+        displayMessage = 'Permission denied: Please ensure you are an active staff member and that the financial year counter has been initialized by an administrator.';
+      }
+      showToast(`Error saving invoice: ${displayMessage}`, 'error');
+      return false;
     }
   };
 

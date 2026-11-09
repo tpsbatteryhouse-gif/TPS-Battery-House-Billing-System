@@ -202,6 +202,16 @@ export default function InvoiceForm({
 
   // Run authoritative pre-print and pre-save validation
   const runValidation = () => {
+    const custName = (invoice?.customer?.name || '').trim();
+    if (!custName) {
+      setValidationErrors(['Please enter the customer name.']);
+      const el = document.getElementById('customer-name-input') || document.getElementById('section-invoice-items');
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      return false;
+    }
+
     const res = validateInvoiceBeforePrint(invoice);
     if (!res.isValid) {
       setValidationErrors(res.errors);
@@ -219,14 +229,14 @@ export default function InvoiceForm({
 
   // Save as Draft
   const handleSaveDraft = async () => {
-    if (!onSave) return;
+    if (!onSave) return false;
     if (!invoice?.items || invoice.items.length === 0) {
       setValidationErrors(['Please add at least one product or service before saving as draft.']);
-      return;
+      return false;
     }
     setIsSaving(true);
     try {
-      await onSave(INVOICE_STATUSES.DRAFT);
+      return await onSave(INVOICE_STATUSES.DRAFT);
     } finally {
       setIsSaving(false);
     }
@@ -234,12 +244,14 @@ export default function InvoiceForm({
 
   // Save Final / Issue Bill
   const handleSaveInvoice = async () => {
-    if (!onSave) return;
-    if (!runValidation()) return;
+    if (!onSave) return false;
+    if (!runValidation()) return false;
     setIsSaving(true);
     try {
       const targetStatus = invoice.paymentStatus || INVOICE_STATUSES.PENDING;
-      await onSave(targetStatus);
+      return await onSave(targetStatus);
+    } catch {
+      return false;
     } finally {
       setIsSaving(false);
     }
