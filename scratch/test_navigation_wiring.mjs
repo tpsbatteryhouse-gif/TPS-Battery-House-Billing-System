@@ -31,7 +31,6 @@ console.log('--- 1. STATIC CODE AUDIT FOR UNRESOLVED VARIABLES & SYMBOLS ---');
 const appJsxContent = fs.readFileSync(path.resolve('src/App.jsx'), 'utf-8');
 const dashboardJsxContent = fs.readFileSync(path.resolve('src/components/Dashboard.jsx'), 'utf-8');
 const headerJsxContent = fs.readFileSync(path.resolve('src/components/Header.jsx'), 'utf-8');
-const fabJsxContent = fs.readFileSync(path.resolve('src/components/FloatingActionButton.jsx'), 'utf-8');
 const settingsModalContent = fs.readFileSync(path.resolve('src/components/BusinessSettingsModal.jsx'), 'utf-8');
 
 it('App.jsx contains NO reference to setIsQuickCreateOpen', () => {

@@ -22,7 +22,7 @@ import {
 import { db } from '../firebase.js';
 import { DEFAULT_BUSINESS_ID } from '../../context/authConstants.js';
 import { inferTransactionType, normalizeInvoiceItem } from '../../utils/categories.js';
-import { calculateInvoiceTotals, validateInvoiceFinancials } from '../../utils/gstCalculations.js';
+import { validateInvoiceFinancials, verifyInvoiceFinancialConsistency } from '../../utils/gstCalculations.js';
 import { createBusinessSnapshot, DEFAULT_BUSINESS_SETTINGS } from './businessSettingsService.js';
 
 // Pre-calculated set of allowed keys matching firestore.rules
@@ -174,11 +174,19 @@ export function sanitizeInvoiceForFirestore(rawInvoice, user = null, isUpdate = 
 
   const normalizedItems = rawInvoice.items.map((item) => normalizeInvoiceItem(item));
 
-  // Compute netPayable using application GST math
-  const totals = calculateInvoiceTotals({ ...rawInvoice, customer, items: normalizedItems }, customer.stateCode || '32');
-  const netPayable = typeof rawInvoice.netPayable === 'number' && rawInvoice.netPayable >= 0
-    ? Number(rawInvoice.netPayable)
-    : totals.netPayable;
+  // Strict financial consistency verification:
+  // Verifies that calculations, deductions, and tax totals are coherent
+  const consistency = verifyInvoiceFinancialConsistency(
+    { ...rawInvoice, customer, items: normalizedItems },
+    customer.stateCode || '32'
+  );
+  if (!consistency.isValid) {
+    throw new Error(`Financial consistency check failed: ${consistency.error}`);
+  }
+
+  // Authoritative final payable amount derived directly from centralized calculation
+  const totals = consistency.totals;
+  const netPayable = totals.netPayable;
 
   const sanitized = {
     id,

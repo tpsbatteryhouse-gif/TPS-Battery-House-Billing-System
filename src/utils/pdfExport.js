@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import QRCode from 'qrcode';
-import { calculateInvoiceTotals, buildUpiUri } from './gstCalculations.js';
+import { calculateInvoiceTotals, buildUpiUri, verifyInvoiceFinancialConsistency } from './gstCalculations.js';
 import { formatNumber } from './numberToWords.js';
 import {
   formatItemSpecifications,
@@ -20,9 +20,11 @@ import {
 export async function generateVectorPdf(invoice, businessInput, invoiceCopy = 'Original for Buyer') {
   const business = invoice?.businessSnapshot || businessInput;
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
-  const payableAmount = typeof invoice?.netPayable === 'number' && invoice.netPayable >= 0
-    ? invoice.netPayable
-    : totals.netPayable;
+  const consistency = verifyInvoiceFinancialConsistency(invoice, business?.stateCode || '32');
+  if (!consistency.isValid) {
+    throw new Error(`Cannot generate PDF for invalid invoice: ${consistency.error}`);
+  }
+  const payableAmount = totals.netPayable;
   const upiUri = buildUpiUri(
     business?.upiId,
     business?.businessName,

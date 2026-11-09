@@ -339,6 +339,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
 
   // Direct Print
   const handlePrint = () => {
+    setInvoice((prev) => ({ ...prev, netPayable: totals.netPayable }));
     window.print();
   };
 
@@ -347,11 +348,15 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     setIsPdfGenerating(true);
     try {
       const { downloadInvoicePdf } = await import('./utils/pdfExport.js');
+      const invoiceToExport = {
+        ...invoice,
+        netPayable: totals.netPayable,
+      };
       await downloadInvoicePdf(
         'invoice-printable',
         invoice.invoiceNumber,
         invoice.customer?.name,
-        { invoice, business, invoiceCopy }
+        { invoice: invoiceToExport, business, invoiceCopy }
       );
       showToast('PDF downloaded successfully!');
     } catch (err) {
@@ -462,6 +467,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                       onBackToDashboard={() => setActiveView('dashboard')}
                       isSaved={isSavedFeedback}
                       onPreview={() => {
+                        setInvoice((prev) => ({ ...prev, netPayable: totals.netPayable }));
                         setEditorMode('preview');
                         window.scrollTo({ top: 0, behavior: 'smooth' });
                       }}

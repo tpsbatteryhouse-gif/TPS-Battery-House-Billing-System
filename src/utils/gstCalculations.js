@@ -365,3 +365,130 @@ export function buildUpiUri(upiId, businessName, amount, invoiceNumber) {
   const note = encodeURIComponent(`Bill ${invoiceNumber || 'TPS'}`);
   return `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${cleanAmount}&cu=INR&tn=${note}`;
 }
+
+export const FINANCIAL_VALIDATION_STATUS = {
+  VALID_NONZERO: 'VALID_NONZERO',
+  VALID_ZERO: 'VALID_ZERO',
+  MISSING_FINAL_AMOUNT: 'MISSING_FINAL_AMOUNT',
+  INVALID_FINANCIAL_INPUT: 'INVALID_FINANCIAL_INPUT',
+  CALCULATION_MISMATCH: 'CALCULATION_MISMATCH',
+};
+
+/**
+ * Authoritative financial consistency guard for invoice issuance, preview, and persistence.
+ * Validates that mathematical totals, deductions, tax slabs, round-off, and net payable
+ * are coherent and consistent with the single source of truth engine.
+ *
+ * Returns {
+ *   isValid: boolean,
+ *   status: FINANCIAL_VALIDATION_STATUS,
+ *   authoritativeNetPayable: number | null,
+ *   totals: object | null,
+ *   error: string | null
+ * }
+ */
+export function verifyInvoiceFinancialConsistency(invoice, businessStateCode = '32') {
+  if (!invoice || typeof invoice !== 'object') {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.INVALID_FINANCIAL_INPUT,
+      authoritativeNetPayable: null,
+      totals: null,
+      error: 'Invoice payload must be a non-null object.',
+    };
+  }
+
+  // 1. Run low-level financial input validation (bounds, types, GST slabs)
+  try {
+    validateInvoiceFinancials(invoice);
+  } catch (err) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.INVALID_FINANCIAL_INPUT,
+      authoritativeNetPayable: null,
+      totals: null,
+      error: err.message,
+    };
+  }
+
+  // 2. Authoritative calculation using centralized engine
+  let totals;
+  try {
+    totals = calculateInvoiceTotals(invoice, businessStateCode);
+  } catch (err) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.INVALID_FINANCIAL_INPUT,
+      authoritativeNetPayable: null,
+      totals: null,
+      error: `Failed to calculate invoice totals: ${err.message}`,
+    };
+  }
+
+  const authoritativeNetPayable = totals.netPayable;
+
+  if (typeof authoritativeNetPayable !== 'number' || isNaN(authoritativeNetPayable) || !isFinite(authoritativeNetPayable)) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.MISSING_FINAL_AMOUNT,
+      authoritativeNetPayable: null,
+      totals,
+      error: 'Authoritative net payable calculation resulted in an invalid number.',
+    };
+  }
+
+  // 3. Mathematical validation of totals
+  const expectedTax = roundToTwoDecimals(totals.totalCgst + totals.totalSgst + totals.totalIgst);
+  if (Math.abs(expectedTax - totals.totalTax) > 0.01) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.CALCULATION_MISMATCH,
+      authoritativeNetPayable,
+      totals,
+      error: `Tax totals mismatch: component taxes (${expectedTax}) do not match total tax (${totals.totalTax}).`,
+    };
+  }
+
+  const grossLessDeductions = Math.max(0, totals.totalGross - totals.scrapDiscount - totals.extraDiscount);
+  if (Math.abs(grossLessDeductions - totals.subtotalAfterDeductions) > 0.01) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.CALCULATION_MISMATCH,
+      authoritativeNetPayable,
+      totals,
+      error: 'Deduction subtraction mismatch in subtotal calculation.',
+    };
+  }
+
+  const expectedNet = roundToTwoDecimals(Math.max(0, totals.subtotalAfterDeductions + totals.roundOff));
+  if (Math.abs(expectedNet - authoritativeNetPayable) > 0.01) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.CALCULATION_MISMATCH,
+      authoritativeNetPayable,
+      totals,
+      error: `Final payable (${authoritativeNetPayable}) does not match subtotal after deductions and round-off (${expectedNet}).`,
+    };
+  }
+
+  // 4. Distinguish Valid Zero vs Valid Nonzero
+  const isZeroValue = authoritativeNetPayable === 0;
+
+  if (totals.totalGross > (totals.scrapDiscount + totals.extraDiscount) && isZeroValue) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.CALCULATION_MISMATCH,
+      authoritativeNetPayable,
+      totals,
+      error: 'Corrupted calculation: billable items exceed deductions but net payable calculated as zero.',
+    };
+  }
+
+  return {
+    isValid: true,
+    status: isZeroValue ? FINANCIAL_VALIDATION_STATUS.VALID_ZERO : FINANCIAL_VALIDATION_STATUS.VALID_NONZERO,
+    authoritativeNetPayable,
+    totals,
+    error: null,
+  };
+}
