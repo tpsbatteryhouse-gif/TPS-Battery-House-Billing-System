@@ -1,180 +1,226 @@
 import React from 'react';
 import {
-  Receipt,
-  CheckCircle2,
-  Clock,
+  Printer,
+  Share2,
+  Eye,
+  Download,
+  Loader2,
   FileEdit,
-  CreditCard,
 } from 'lucide-react';
 import { formatNumber } from '../../utils/numberToWords';
-import { PAYMENT_MODES } from '../../utils/defaults';
-import { INVOICE_STATUSES } from '../../data/mockData';
 
 export default function InvoiceSummary({
   invoice,
   totals,
-  onUpdateField,
   isInterstate = false,
+  onSaveInvoice,
+  onSaveDraft,
+  onPreview,
+  onPrint,
+  onDownloadPdf,
+  onShareWhatsApp,
+  isPrinting = false,
+  isPdfGenerating = false,
+  isSaving = false,
 }) {
-  const currentStatus = invoice?.paymentStatus || INVOICE_STATUSES.PENDING;
-  const currentMode = invoice?.paymentMode || 'Cash';
+  const isB2B = invoice?.transactionType === 'B2B' || Boolean(invoice?.customer?.gstin && invoice.customer.gstin.trim().length >= 10);
+  const typeLabel = isB2B ? 'Business customer (B2B)' : 'Regular customer (B2C)';
+  const customerName = (invoice?.customer?.name || '').trim() || 'New Customer';
+
+  const itemsCount = invoice?.items?.length || 0;
+  const countText = `${itemsCount} ${itemsCount === 1 ? 'item' : 'items'}`;
+  const payStatus = invoice?.paymentStatus === 'Paid' ? 'Paid' : 'Pay later';
+  const payMode = invoice?.paymentMode || 'Cash';
+  const payLine = `${payStatus} · ${payMode}`;
+
+  // Average or predominant GST rate label
+  const gstLabel = isInterstate
+    ? 'IGST (already included)'
+    : 'GST (CGST + SGST included)';
+
+  const handleSaveAndPrint = async () => {
+    if (onSaveInvoice) {
+      await onSaveInvoice();
+    }
+    if (onPrint) {
+      onPrint();
+    }
+  };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl space-y-5">
-      {/* Header */}
-      <div className="flex items-center gap-2.5 border-b border-slate-800/80 pb-3">
-        <div className="p-2 bg-amber-500/10 text-amber-400 rounded-lg border border-amber-500/20">
-          <Receipt className="w-5 h-5" />
+    <aside
+      aria-label="Bill total"
+      className="bg-[#181C22] border border-[#2A3039] rounded-2xl p-6 sm:p-7 flex flex-col gap-4 sm:gap-4.5 sticky top-6 shadow-2xl"
+    >
+      <h2 className="text-xl sm:text-2xl font-bold text-[#F2EFE9] m-0">
+        Bill total
+      </h2>
+
+      {/* Customer & Item Overview */}
+      <div className="flex flex-col gap-1 pb-4 border-b border-[#2A3039]">
+        <div className="text-sm sm:text-[15px] text-[#A8A294]">{typeLabel}</div>
+        <div className="text-lg sm:text-xl font-bold text-[#F2EFE9] truncate">
+          {customerName}
         </div>
-        <div>
-          <h2 className="text-base font-bold text-white tracking-tight">
-            Tax Invoice Financial Summary
-          </h2>
-          <p className="text-xs text-slate-400">
-            Authoritative computation of gross subtotal, statutory GST, deductions, and net payable
-          </p>
+        <div className="text-sm sm:text-[15px] text-[#A8A294]">
+          {countText} · {payLine}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        {/* Left: Payment Status & Payment Mode Configuration */}
-        <div className="lg:col-span-5 space-y-4">
-          {/* Payment Status Selector */}
-          <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 space-y-2.5">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
-              Payment Status *
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: INVOICE_STATUSES.PAID, label: 'Paid', icon: CheckCircle2, color: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' },
-                { id: INVOICE_STATUSES.PENDING, label: 'Pending', icon: Clock, color: 'text-amber-400 border-amber-500/30 bg-amber-500/10' },
-                { id: INVOICE_STATUSES.DRAFT, label: 'Draft', icon: FileEdit, color: 'text-slate-300 border-slate-700 bg-slate-800/80' },
-              ].map((s) => {
-                const Icon = s.icon;
-                const isSelected = currentStatus === s.id;
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => onUpdateField('paymentStatus', s.id)}
-                    className={`py-2 px-2.5 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 transition-all ${
-                      isSelected
-                        ? `${s.color} font-bold shadow-md ring-1 ring-amber-500/40`
-                        : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-white hover:bg-slate-800'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{s.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Payment Mode Selector */}
-          <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 space-y-2.5">
-            <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-              <CreditCard className="w-3.5 h-3.5 text-amber-400" />
-              <span>Payment Mode</span>
-            </label>
-            <select
-              value={currentMode}
-              onChange={(e) => onUpdateField('paymentMode', e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs font-medium text-white focus:outline-none transition-all"
-            >
-              {PAYMENT_MODES.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-            <p className="text-[11px] text-slate-500">
-              UPI QR code will generate on invoice preview & print when UPI or Cash is selected.
-            </p>
-          </div>
+      {/* Authoritative Financial Breakdown Rows */}
+      <div className="flex flex-col gap-2.5 text-base sm:text-[17px]">
+        {/* Gross Items Subtotal */}
+        <div className="flex justify-between items-baseline gap-3">
+          <span className="text-[#F2EFE9]">Items total</span>
+          <span className="font-bold font-mono text-[#F2EFE9] whitespace-nowrap">
+            ₹{formatNumber(totals.totalGross)}
+          </span>
         </div>
 
-        {/* Right: Authoritative Financial Calculation Table */}
-        <div className="lg:col-span-7 bg-slate-950/80 border border-slate-800/80 rounded-xl p-4 sm:p-5 space-y-3 font-mono text-xs">
-          {/* Gross Item Subtotal */}
-          <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
-            <span className="font-sans">Gross Line Items Subtotal</span>
-            <span className="text-slate-200 font-bold whitespace-nowrap">₹{formatNumber(totals.totalGross)}</span>
+        {/* Special Discount */}
+        {totals.extraDiscount > 0 && (
+          <div className="flex justify-between items-baseline gap-3 text-[#FFC857]">
+            <span>Discount</span>
+            <span className="font-bold font-mono whitespace-nowrap">
+              − ₹{formatNumber(totals.extraDiscount)}
+            </span>
           </div>
+        )}
 
-          {/* Item Discounts */}
-          {totals.extraDiscount > 0 && (
-            <div className="flex items-center justify-between text-amber-400/90 py-1 border-b border-slate-800/60">
-              <span className="font-sans">Special Invoice Discount</span>
-              <span className="font-bold whitespace-nowrap">-₹{formatNumber(totals.extraDiscount)}</span>
-            </div>
-          )}
-
-          {/* Scrap Battery Buyback */}
-          {totals.scrapDiscount > 0 && (
-            <div className="flex items-center justify-between text-amber-400 py-1 border-b border-slate-800/60">
-              <span className="font-sans">Old Battery Scrap Buyback Deduction</span>
-              <span className="font-bold whitespace-nowrap">-₹{formatNumber(totals.scrapDiscount)}</span>
-            </div>
-          )}
-
-          {/* Taxable Subtotal */}
-          <div className="flex items-center justify-between text-slate-300 py-1 border-b border-slate-800/60">
-            <span className="font-sans font-semibold">Total Taxable Subtotal</span>
-            <span className="text-white font-bold whitespace-nowrap">₹{formatNumber(totals.totalTaxableValue)}</span>
+        {/* Scrap Battery Exchange */}
+        {totals.scrapDiscount > 0 && (
+          <div className="flex justify-between items-baseline gap-3 text-[#FFC857]">
+            <span>Old battery value</span>
+            <span className="font-bold font-mono whitespace-nowrap">
+              − ₹{formatNumber(totals.scrapDiscount)}
+            </span>
           </div>
+        )}
 
-          {/* Tax Breakdown */}
-          {isInterstate ? (
-            <div className="flex items-center justify-between text-purple-400 py-1 border-b border-slate-800/60">
-              <span className="font-sans">Integrated Tax (IGST)</span>
-              <span className="font-bold whitespace-nowrap">₹{formatNumber(totals.totalIgst)}</span>
-            </div>
+        {/* Taxable Subtotal Before GST */}
+        <div className="flex justify-between items-baseline gap-3 text-[#A8A294]">
+          <span>Price before GST</span>
+          <span className="font-mono whitespace-nowrap">
+            ₹{formatNumber(totals.totalTaxableValue)}
+          </span>
+        </div>
+
+        {/* GST Breakdown */}
+        {isInterstate ? (
+          <div className="flex justify-between items-baseline gap-3 text-[#A8A294]">
+            <span>IGST</span>
+            <span className="font-mono whitespace-nowrap">
+              ₹{formatNumber(totals.totalIgst)}
+            </span>
+          </div>
+        ) : (
+          <div className="flex justify-between items-baseline gap-3 text-[#A8A294]">
+            <span>{gstLabel}</span>
+            <span className="font-mono whitespace-nowrap">
+              ₹{formatNumber(totals.totalTax)}
+            </span>
+          </div>
+        )}
+
+        {/* Round-off Adjustment */}
+        {totals.roundOff !== 0 && (
+          <div className="flex justify-between items-baseline gap-3 text-[#A8A294]">
+            <span>Round-off</span>
+            <span className="font-mono whitespace-nowrap">
+              {totals.roundOff >= 0 ? `+₹${formatNumber(totals.roundOff)}` : `−₹${formatNumber(Math.abs(totals.roundOff))}`}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Customer Pays — Hero Metric Box */}
+      <div className="bg-[#2A2210] border border-[#5C4513] rounded-xl p-4 sm:p-5">
+        <div className="text-sm sm:text-base font-semibold text-[#F2EFE9] mb-1">
+          Customer pays
+        </div>
+        <div className="text-3xl sm:text-4xl lg:text-[42px] font-extrabold font-mono text-[#FFC857] leading-tight whitespace-nowrap tracking-tight">
+          ₹{formatNumber(totals.netPayable)}
+        </div>
+      </div>
+
+      {/* Amount In Words */}
+      {totals.amountInWords && (
+        <div className="text-xs sm:text-sm text-[#A8A294] italic leading-relaxed break-words">
+          <strong className="text-[#F2EFE9] not-italic">In Words:</strong> {totals.amountInWords}
+        </div>
+      )}
+
+      {/* Primary Action Buttons */}
+      <div className="flex flex-col gap-3 pt-2">
+        {/* Save & Print Bill (Hero Action) */}
+        <button
+          type="button"
+          onClick={handleSaveAndPrint}
+          disabled={isPrinting || isSaving}
+          className="w-full h-14 sm:h-[60px] rounded-xl bg-[#F2A516] hover:bg-[#ffb52e] text-[#1F1A14] text-lg sm:text-xl font-extrabold flex items-center justify-center gap-2.5 transition-all shadow-lg hover:shadow-amber-500/20 disabled:opacity-50 cursor-pointer"
+        >
+          {isPrinting ? (
+            <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
-            <>
-              <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
-                <span className="font-sans">Central Tax (CGST)</span>
-                <span className="text-slate-300 font-bold whitespace-nowrap">₹{formatNumber(totals.totalCgst)}</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
-                <span className="font-sans">State Tax (SGST)</span>
-                <span className="text-slate-300 font-bold whitespace-nowrap">₹{formatNumber(totals.totalSgst)}</span>
-              </div>
-            </>
+            <Printer className="w-5 h-5" />
+          )}
+          <span>Save &amp; Print Bill</span>
+        </button>
+
+        {/* Send on WhatsApp */}
+        {onShareWhatsApp && (
+          <button
+            type="button"
+            onClick={onShareWhatsApp}
+            className="inv-pill w-full justify-center"
+          >
+            <Share2 className="w-4 h-4 text-emerald-400" />
+            <span>Send on WhatsApp</span>
+          </button>
+        )}
+
+        {/* Secondary Actions: Preview, PDF, Save for later */}
+        <div className="flex items-center justify-between gap-2 pt-1">
+          {onPreview && (
+            <button
+              type="button"
+              onClick={onPreview}
+              className="text-xs sm:text-sm font-semibold text-[#A8A294] hover:text-[#F2EFE9] flex items-center gap-1.5 py-1"
+            >
+              <Eye className="w-4 h-4" />
+              <span>Preview</span>
+            </button>
           )}
 
-          {/* Total Tax Amount */}
-          <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
-            <span className="font-sans">Total GST Amount</span>
-            <span className="text-slate-200 font-bold whitespace-nowrap">₹{formatNumber(totals.totalTax)}</span>
-          </div>
+          {onDownloadPdf && (
+            <button
+              type="button"
+              onClick={onDownloadPdf}
+              disabled={isPdfGenerating}
+              className="text-xs sm:text-sm font-semibold text-[#A8A294] hover:text-[#F2EFE9] flex items-center gap-1.5 py-1 disabled:opacity-50"
+            >
+              {isPdfGenerating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              <span>PDF</span>
+            </button>
+          )}
 
-          {/* Round-off Adjustment */}
-          <div className="flex items-center justify-between text-slate-400 py-1 border-b border-slate-800/60">
-            <span className="font-sans">Round-Off Adjustment</span>
-            <span className="text-slate-300 font-bold whitespace-nowrap">
-              {totals.roundOff >= 0 ? `+₹${formatNumber(totals.roundOff)}` : `-₹${formatNumber(Math.abs(totals.roundOff))}`}
-            </span>
-          </div>
-
-          {/* Final Net Payable Amount (Hero Metric) */}
-          <div className="pt-2 flex flex-col sm:flex-row sm:items-baseline justify-between gap-2 border-t-2 border-amber-500/30">
-            <span className="font-sans text-sm sm:text-base font-extrabold text-white uppercase tracking-tight">
-              Final Net Payable:
-            </span>
-            <div className="text-2xl sm:text-3xl font-black text-amber-400 tracking-tight self-end sm:self-auto whitespace-nowrap">
-              ₹{formatNumber(totals.netPayable)}
-            </div>
-          </div>
-
-          {/* Amount in Words */}
-          {totals.amountInWords && (
-            <div className="pt-2 text-[11px] font-sans italic text-slate-400 border-t border-slate-800/40 break-words leading-relaxed">
-              <strong className="text-slate-300 not-italic">In Words:</strong> {totals.amountInWords}
-            </div>
+          {onSaveDraft && (
+            <button
+              type="button"
+              onClick={onSaveDraft}
+              disabled={isSaving}
+              className="text-xs sm:text-sm font-semibold text-[#A8A294] hover:text-[#F2EFE9] flex items-center gap-1.5 py-1 disabled:opacity-50"
+            >
+              <FileEdit className="w-4 h-4" />
+              <span>Save for later</span>
+            </button>
           )}
         </div>
       </div>
-    </div>
+    </aside>
   );
 }

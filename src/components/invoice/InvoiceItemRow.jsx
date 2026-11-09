@@ -1,19 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
-  Trash2,
-  BatteryCharging,
-  Zap,
-  Sun,
-  Wrench,
-  Package,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
   PRODUCT_CATEGORIES,
   CATEGORY_CONFIG,
-  MULTI_CATEGORY_UNITS,
 } from '../../utils/categories';
 import { calculateLineItem } from '../../utils/gstCalculations';
 import { formatNumber } from '../../utils/numberToWords';
+
+const GST_SLABS = [0, 5, 12, 18, 28];
 
 export default function InvoiceItemRow({
   item,
@@ -21,375 +18,228 @@ export default function InvoiceItemRow({
   onUpdateItem,
   onUpdateCategory,
   onRemoveItem,
-  isOnlyItem,
+  isOnlyItem = false,
   isInterstate = false,
-  isMobileCard = false,
 }) {
-  const cat = item.category || PRODUCT_CATEGORIES.BATTERY;
-  const catCfg = CATEGORY_CONFIG[cat] || CATEGORY_CONFIG[PRODUCT_CATEGORIES.BATTERY];
-  const computed = calculateLineItem(item, isInterstate);
+  const [isExpanded, setIsExpanded] = useState(false);
 
-  const getCatIcon = (c, className = 'w-3.5 h-3.5') => {
-    switch (c) {
-      case PRODUCT_CATEGORIES.BATTERY:
-        return <BatteryCharging className={className} />;
-      case PRODUCT_CATEGORIES.INVERTER:
-        return <Zap className={className} />;
-      case PRODUCT_CATEGORIES.SOLAR:
-        return <Sun className={className} />;
-      case PRODUCT_CATEGORIES.SERVICES:
-        return <Wrench className={className} />;
-      default:
-        return <Package className={className} />;
-    }
+  // Compute live line item financial values
+  const lineCalcs = calculateLineItem(item, isInterstate);
+
+  const handleQtyChange = (delta) => {
+    const currentQty = Number(item.qty) || 1;
+    const newQty = Math.max(1, currentQty + delta);
+    onUpdateItem(index, 'qty', newQty);
   };
 
-  // --- MOBILE / TABLET CARD LAYOUT ---
-  if (isMobileCard) {
-    return (
-      <div className="bg-slate-950/80 border border-slate-800 hover:border-slate-700/80 rounded-2xl p-4 space-y-3 shadow-md transition-all">
-        {/* Card Header: Sl No, Category Picker & Remove */}
-        <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
-          <div className="flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-slate-800 text-slate-300 font-mono font-bold text-[10px] flex items-center justify-center">
-              {index + 1}
-            </span>
-            {/* Category Selector Pill */}
-            <div className="flex items-center gap-1">
-              <span className={`p-1 rounded text-xs ${catCfg.badgeClass}`}>
-                {getCatIcon(cat, 'w-3 h-3')}
-              </span>
-              <select
-                value={cat}
-                onChange={(e) => onUpdateCategory(index, e.target.value)}
-                className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-0.5 text-xs font-semibold text-amber-400 focus:outline-none"
-              >
-                {Object.values(CATEGORY_CONFIG).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+  const handlePriceChange = (val) => {
+    const num = parseFloat(val);
+    onUpdateItem(index, 'rate', isNaN(num) ? 0 : num);
+  };
 
+  // Build descriptive subtitle from warranty and specs
+  const subtitleParts = [];
+  if (item.warranty) subtitleParts.push(item.warranty);
+  if (item.serialNo) subtitleParts.push(`SN: ${item.serialNo}`);
+  if (item.subcategory) subtitleParts.push(item.subcategory);
+  const subtitle = subtitleParts.length > 0 ? subtitleParts.join(' · ') : (item.category ? `${item.category.toUpperCase()} · GST ${item.gstRate || 18}%` : '');
+
+  const categoryCfg = CATEGORY_CONFIG[item.category] || CATEGORY_CONFIG[PRODUCT_CATEGORIES.BATTERY];
+
+  return (
+    <div className="bg-[#12161B] border border-[#2A3039] rounded-xl p-4 sm:p-5 transition-all">
+      {/* Primary Item Row matching HTML reference */}
+      <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-6">
+        {/* Item Title & Specs Note */}
+        <div className="flex-1 min-w-[240px]">
+          <div className="text-base sm:text-lg font-bold text-[#F2EFE9] leading-tight">
+            {item.name || <span className="text-[#A8A294] italic">Unnamed Item</span>}
+          </div>
+          {subtitle && (
+            <div className="text-xs sm:text-sm text-[#A8A294] mt-0.5">
+              {subtitle}
+            </div>
+          )}
           <button
             type="button"
-            onClick={() => onRemoveItem(index)}
-            disabled={isOnlyItem}
-            className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors disabled:opacity-30 disabled:hover:text-slate-500 disabled:hover:bg-transparent"
-            title={isOnlyItem ? 'Invoice must contain at least 1 item' : 'Remove line item'}
+            onClick={() => setIsExpanded((prev) => !prev)}
+            className="text-xs text-[#A8A294] hover:text-[#FFC857] inline-flex items-center gap-1 mt-1 font-medium"
           >
-            <Trash2 className="w-4 h-4" />
+            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            <span>{isExpanded ? 'Hide details' : 'Edit details & GST'}</span>
           </button>
         </div>
 
-        {/* Product Description */}
-        <div className="space-y-1">
-          <label className="text-[10px] font-medium text-slate-400">Item Description / Name *</label>
-          <input
-            type="text"
-            value={item.name || ''}
-            onChange={(e) => onUpdateItem(index, 'name', e.target.value)}
-            placeholder="e.g. Amaron Current 150Ah Tall Tubular Battery"
-            className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
-          />
-        </div>
-
-        {/* HSN & Warranty */}
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="space-y-1">
-            <label className="text-[10px] font-medium text-slate-400">HSN/SAC</label>
-            <input
-              type="text"
-              value={item.hsn || ''}
-              onChange={(e) => onUpdateItem(index, 'hsn', e.target.value)}
-              placeholder={catCfg.defaultHsn}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-medium text-slate-400">Warranty / Serial</label>
-            <input
-              type="text"
-              value={item.warranty || ''}
-              onChange={(e) => onUpdateItem(index, 'warranty', e.target.value)}
-              placeholder="36 Months"
-              className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-2.5 py-1.5 text-xs text-white focus:outline-none"
-            />
-          </div>
-        </div>
-
-        {/* Qty, Unit, Unit Price, Tax Mode */}
-        <div className="grid grid-cols-12 gap-2 text-xs">
-          <div className="col-span-4 space-y-1">
-            <label className="text-[10px] font-medium text-slate-400">Quantity</label>
-            <input
-              type="number"
-              min="0.001"
-              step="any"
-              value={item.qty ?? ''}
-              onChange={(e) => onUpdateItem(index, 'qty', e.target.value === '' ? '' : parseFloat(e.target.value))}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold text-white focus:outline-none"
-            />
-          </div>
-          <div className="col-span-4 space-y-1">
-            <label className="text-[10px] font-medium text-slate-400">Unit</label>
-            <select
-              value={item.unit || catCfg.defaultUnit}
-              onChange={(e) => onUpdateItem(index, 'unit', e.target.value)}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-2 py-1.5 text-xs text-white focus:outline-none"
-            >
-              {MULTI_CATEGORY_UNITS.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="col-span-4 space-y-1">
-            <label className="text-[10px] font-medium text-slate-400">Unit Rate (₹)</label>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={item.rate ?? ''}
-              onChange={(e) => onUpdateItem(index, 'rate', e.target.value === '' ? '' : parseFloat(e.target.value))}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-2.5 py-1.5 text-xs font-mono font-bold text-amber-400 focus:outline-none"
-            />
-          </div>
-        </div>
-
-        {/* GST Slab, Mode, Discount */}
-        <div className="grid grid-cols-12 gap-2 text-xs items-end">
-          <div className="col-span-4 space-y-1">
-            <label className="text-[10px] font-medium text-slate-400">GST Slab</label>
-            <select
-              value={item.gstRate ?? catCfg.defaultGstRate}
-              onChange={(e) => onUpdateItem(index, 'gstRate', Number(e.target.value))}
-              className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-2 py-1.5 text-xs font-mono text-white focus:outline-none"
-            >
-              {[0, 5, 12, 18, 28].map((r) => (
-                <option key={r} value={r}>
-                  {r}% GST
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="col-span-4 space-y-1">
-            <label className="text-[10px] font-medium text-slate-400">Pricing Mode</label>
-            <button
-              type="button"
-              onClick={() => onUpdateItem(index, 'isTaxInclusive', !item.isTaxInclusive)}
-              className={`w-full py-1.5 px-2 rounded-xl text-[11px] font-semibold border transition-all ${
-                item.isTaxInclusive
-                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                  : 'bg-slate-800 text-slate-300 border-slate-700'
-              }`}
-            >
-              {item.isTaxInclusive ? 'Tax Incl' : 'Tax Excl'}
-            </button>
-          </div>
-
-          <div className="col-span-4 space-y-1">
-            <label className="text-[10px] font-medium text-slate-400">Discount (₹)</label>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={item.discount ?? ''}
-              onChange={(e) => onUpdateItem(index, 'discount', e.target.value === '' ? 0 : parseFloat(e.target.value))}
-              placeholder="0"
-              className="w-full bg-slate-900 border border-slate-800 focus:border-amber-500 rounded-xl px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none"
-            />
-          </div>
-        </div>
-
-        {/* Card Footer: Taxable & Line Total */}
-        <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs font-mono">
-          <span className="text-slate-400">
-            Taxable: <strong className="text-slate-200">₹{formatNumber(computed.taxableValue)}</strong>
-          </span>
-          <span className="text-sm font-bold text-amber-400">
-            Total: ₹{formatNumber(computed.lineTotal)}
-          </span>
-        </div>
-      </div>
-    );
-  }
-
-  // --- DESKTOP TABLE ROW LAYOUT ---
-  return (
-    <tr className="hover:bg-slate-950/40 border-b border-slate-800/60 transition-colors group text-xs">
-      {/* 1. Sl No */}
-      <td className="py-3 px-2 text-center text-slate-500 font-mono font-semibold text-[11px]">
-        {index + 1}
-      </td>
-
-      {/* 2. Category */}
-      <td className="py-3 px-2 w-32 min-w-[128px]">
-        <div className="flex items-center gap-1.5">
-          <span className={`p-1.5 rounded-lg border ${catCfg.badgeClass}`}>
-            {getCatIcon(cat, 'w-3.5 h-3.5')}
-          </span>
-          <select
-            value={cat}
-            onChange={(e) => onUpdateCategory(index, e.target.value)}
-            className="bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-lg px-2 py-1 text-[11px] font-semibold text-amber-400 focus:outline-none"
+        {/* Stepper Controls: [−] [qty] [+] */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => handleQtyChange(-1)}
+            disabled={Number(item.qty) <= 1}
+            aria-label="One less"
+            className="inv-pill w-11 h-11 min-h-[44px] p-0 text-2xl font-bold disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            {Object.values(CATEGORY_CONFIG).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.shortLabel}
-              </option>
-            ))}
-          </select>
-        </div>
-      </td>
-
-      {/* 3. Description & Specs */}
-      <td className="py-3 px-2 min-w-[260px]">
-        <div className="space-y-1">
-          <input
-            type="text"
-            value={item.name || ''}
-            onChange={(e) => onUpdateItem(index, 'name', e.target.value)}
-            placeholder="Item Description / Brand & Model..."
-            className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-lg px-2.5 py-1 text-xs text-white placeholder-slate-500 focus:outline-none"
-          />
-          <div className="flex items-center gap-1.5">
-            <input
-              type="text"
-              value={item.warranty || ''}
-              onChange={(e) => onUpdateItem(index, 'warranty', e.target.value)}
-              placeholder="Warranty (e.g. 36 Months)"
-              className="w-1/2 bg-slate-950/60 border border-slate-800/80 rounded px-2 py-0.5 text-[10px] text-slate-300 placeholder-slate-600 focus:outline-none"
-            />
-            <input
-              type="text"
-              value={item.serialNo || ''}
-              onChange={(e) => onUpdateItem(index, 'serialNo', e.target.value)}
-              placeholder="Serial No / Batch (Opt)"
-              className="w-1/2 bg-slate-950/60 border border-slate-800/80 rounded px-2 py-0.5 text-[10px] font-mono text-slate-300 placeholder-slate-600 focus:outline-none"
-            />
+            −
+          </button>
+          <div
+            className="min-w-[40px] text-center text-xl sm:text-2xl font-bold text-[#F2EFE9]"
+            aria-live="polite"
+          >
+            {item.qty || 1}
           </div>
+          <button
+            type="button"
+            onClick={() => handleQtyChange(1)}
+            aria-label="One more"
+            className="inv-pill w-11 h-11 min-h-[44px] p-0 text-2xl font-bold"
+          >
+            +
+          </button>
         </div>
-      </td>
 
-      {/* 4. HSN */}
-      <td className="py-3 px-2 w-20">
-        <input
-          type="text"
-          value={item.hsn || ''}
-          onChange={(e) => onUpdateItem(index, 'hsn', e.target.value)}
-          placeholder={catCfg.defaultHsn}
-          className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-lg px-2 py-1 text-xs font-mono text-white text-center focus:outline-none"
-        />
-      </td>
-
-      {/* 5. Qty & Unit */}
-      <td className="py-3 px-2 w-28">
-        <div className="flex items-center gap-1">
+        {/* Price Input: Price each ₹ */}
+        <div className="flex items-center gap-2 shrink-0">
+          <label htmlFor={`item-price-${index}`} className="text-xs sm:text-sm text-[#A8A294] whitespace-nowrap">
+            Price each ₹
+          </label>
           <input
+            id={`item-price-${index}`}
             type="number"
-            min="0.001"
+            inputMode="decimal"
             step="any"
-            value={item.qty ?? ''}
-            onChange={(e) => onUpdateItem(index, 'qty', e.target.value === '' ? '' : parseFloat(e.target.value))}
-            className="w-14 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-lg px-1.5 py-1 text-xs font-mono font-bold text-white text-center focus:outline-none"
+            value={item.rate === 0 ? '' : item.rate}
+            onChange={(e) => handlePriceChange(e.target.value)}
+            placeholder="0"
+            className="inv-fld w-28 sm:w-32 h-11 sm:h-12 text-base sm:text-lg font-bold font-mono px-3"
           />
-          <select
-            value={item.unit || catCfg.defaultUnit}
-            onChange={(e) => onUpdateItem(index, 'unit', e.target.value)}
-            className="w-14 bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-lg px-1 py-1 text-[11px] text-slate-300 focus:outline-none"
-          >
-            {MULTI_CATEGORY_UNITS.map((u) => (
-              <option key={u} value={u}>
-                {u}
-              </option>
-            ))}
-          </select>
         </div>
-      </td>
 
-      {/* 6. Unit Rate */}
-      <td className="py-3 px-2 w-28">
-        <input
-          type="number"
-          min="0"
-          step="any"
-          value={item.rate ?? ''}
-          onChange={(e) => onUpdateItem(index, 'rate', e.target.value === '' ? '' : parseFloat(e.target.value))}
-          className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-lg px-2 py-1 text-xs font-mono font-bold text-amber-400 text-right focus:outline-none"
-        />
-      </td>
+        {/* Line Total */}
+        <div className="min-w-[100px] text-right text-lg sm:text-xl font-bold font-mono text-[#F2EFE9] shrink-0">
+          ₹{formatNumber(lineCalcs.total)}
+        </div>
 
-      {/* 7. Tax Mode (Incl/Excl) */}
-      <td className="py-3 px-2 w-20 text-center">
-        <button
-          type="button"
-          onClick={() => onUpdateItem(index, 'isTaxInclusive', !item.isTaxInclusive)}
-          className={`px-2 py-1 rounded text-[10px] font-semibold border transition-all ${
-            item.isTaxInclusive
-              ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-              : 'bg-slate-800 text-slate-400 border-slate-700'
-          }`}
-          title={item.isTaxInclusive ? 'Rate includes GST (MRP)' : 'Rate is exclusive of GST (Base)'}
-        >
-          {item.isTaxInclusive ? 'Incl' : 'Excl'}
-        </button>
-      </td>
-
-      {/* 8. GST Slab */}
-      <td className="py-3 px-2 w-20">
-        <select
-          value={item.gstRate ?? catCfg.defaultGstRate}
-          onChange={(e) => onUpdateItem(index, 'gstRate', Number(e.target.value))}
-          className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-lg px-1.5 py-1 text-xs font-mono text-white text-center focus:outline-none"
-        >
-          {[0, 5, 12, 18, 28].map((r) => (
-            <option key={r} value={r}>
-              {r}%
-            </option>
-          ))}
-        </select>
-      </td>
-
-      {/* 9. Discount (₹) */}
-      <td className="py-3 px-2 w-20">
-        <input
-          type="number"
-          min="0"
-          step="any"
-          value={item.discount ?? ''}
-          onChange={(e) => onUpdateItem(index, 'discount', e.target.value === '' ? 0 : parseFloat(e.target.value))}
-          placeholder="0"
-          className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500 rounded-lg px-2 py-1 text-xs font-mono text-slate-300 text-right focus:outline-none"
-        />
-      </td>
-
-      {/* 10. Taxable Amount */}
-      <td className="py-3 px-2 text-right font-mono text-slate-300 w-28 min-w-[100px] whitespace-nowrap">
-        ₹{formatNumber(computed.taxableValue)}
-      </td>
-
-      {/* 11. Line Total */}
-      <td className="py-3 px-2 text-right font-mono font-bold text-white w-28 min-w-[100px] whitespace-nowrap">
-        ₹{formatNumber(computed.lineTotal)}
-      </td>
-
-      {/* 12. Remove */}
-      <td className="py-3 px-2 text-center w-10">
+        {/* Remove Link Button */}
         <button
           type="button"
           onClick={() => onRemoveItem(index)}
           disabled={isOnlyItem}
-          className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition-colors disabled:opacity-30 disabled:hover:text-slate-500 disabled:hover:bg-transparent"
-          title={isOnlyItem ? 'Invoice must contain at least 1 item' : 'Remove item'}
+          className="inv-link text-sm sm:text-base text-[#FF8A80] hover:text-[#ff6b60] disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          Remove
         </button>
-      </td>
-    </tr>
+      </div>
+
+      {/* Expandable Advanced Item Settings (GST slab, HSN, Tax Mode, Warranty, Serial No) */}
+      {isExpanded && (
+        <div className="mt-4 pt-4 border-t border-[#2A3039] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          {/* Item Name / Description Override */}
+          <div className="sm:col-span-2">
+            <label className="text-[11px] text-[#A8A294] block mb-1">
+              Item Description
+            </label>
+            <input
+              type="text"
+              value={item.name || ''}
+              onChange={(e) => onUpdateItem(index, 'name', e.target.value)}
+              className="w-full bg-[#0F1216] border border-[#7A7568] rounded-lg px-3 py-2 text-xs text-[#F2EFE9]"
+              placeholder="Brand, model, capacity..."
+            />
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="text-[11px] text-[#A8A294] block mb-1">
+              Category
+            </label>
+            <select
+              value={item.category || PRODUCT_CATEGORIES.BATTERY}
+              onChange={(e) => onUpdateCategory(index, e.target.value)}
+              className="w-full bg-[#0F1216] border border-[#7A7568] rounded-lg px-2.5 py-2 text-xs text-[#F2EFE9]"
+            >
+              {Object.values(CATEGORY_CONFIG).map((cfg) => (
+                <option key={cfg.id} value={cfg.id}>
+                  {cfg.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* HSN/SAC */}
+          <div>
+            <label className="text-[11px] text-[#A8A294] block mb-1">
+              HSN / SAC
+            </label>
+            <input
+              type="text"
+              value={item.hsn || ''}
+              onChange={(e) => onUpdateItem(index, 'hsn', e.target.value)}
+              className="w-full bg-[#0F1216] border border-[#7A7568] rounded-lg px-2.5 py-2 text-xs font-mono text-[#F2EFE9]"
+            />
+          </div>
+
+          {/* GST Slab */}
+          <div>
+            <label className="text-[11px] text-[#A8A294] block mb-1">
+              GST Slab
+            </label>
+            <select
+              value={item.gstRate ?? categoryCfg.defaultGstRate}
+              onChange={(e) => onUpdateItem(index, 'gstRate', Number(e.target.value))}
+              className="w-full bg-[#0F1216] border border-[#7A7568] rounded-lg px-2.5 py-2 text-xs text-[#F2EFE9]"
+            >
+              {GST_SLABS.map((slab) => (
+                <option key={slab} value={slab}>
+                  {slab}% GST
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Tax Mode (Incl / Excl) */}
+          <div>
+            <label className="text-[11px] text-[#A8A294] block mb-1">
+              Tax Mode
+            </label>
+            <select
+              value={item.isTaxInclusive !== false ? 'inclusive' : 'exclusive'}
+              onChange={(e) => onUpdateItem(index, 'isTaxInclusive', e.target.value === 'inclusive')}
+              className="w-full bg-[#0F1216] border border-[#7A7568] rounded-lg px-2.5 py-2 text-xs text-[#F2EFE9]"
+            >
+              <option value="inclusive">GST Included in Price</option>
+              <option value="exclusive">Price + GST Extra</option>
+            </select>
+          </div>
+
+          {/* Warranty */}
+          <div>
+            <label className="text-[11px] text-[#A8A294] block mb-1">
+              Warranty
+            </label>
+            <input
+              type="text"
+              value={item.warranty || ''}
+              onChange={(e) => onUpdateItem(index, 'warranty', e.target.value)}
+              className="w-full bg-[#0F1216] border border-[#7A7568] rounded-lg px-2.5 py-2 text-xs text-[#F2EFE9]"
+              placeholder="e.g. 36 Months"
+            />
+          </div>
+
+          {/* Serial Number */}
+          <div>
+            <label className="text-[11px] text-[#A8A294] block mb-1">
+              Serial / Batch Number
+            </label>
+            <input
+              type="text"
+              value={item.serialNo || ''}
+              onChange={(e) => onUpdateItem(index, 'serialNo', e.target.value)}
+              className="w-full bg-[#0F1216] border border-[#7A7568] rounded-lg px-2.5 py-2 text-xs font-mono text-[#F2EFE9]"
+              placeholder="Optional barcode / SN"
+            />
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

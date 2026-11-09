@@ -10,15 +10,13 @@ import { INVOICE_STATUSES } from '../data/mockData';
 import CatalogItemPickerModal from './CatalogItemPickerModal';
 import CustomerPickerModal from './CustomerPickerModal';
 
-// Sub-components
+// Sub-components matching Simple New Bill – New Bill.html architecture
 import InvoicePageHeader from './invoice/InvoicePageHeader';
 import CustomerDetailsSection from './invoice/CustomerDetailsSection';
-import InvoiceMetadataSection from './invoice/InvoiceMetadataSection';
 import InvoiceItemsSection from './invoice/InvoiceItemsSection';
-import InvoiceDeductionsSection from './invoice/InvoiceDeductionsSection';
+import InvoicePaymentSection from './invoice/InvoicePaymentSection';
+import InvoiceMetadataSection from './invoice/InvoiceMetadataSection';
 import InvoiceSummary from './invoice/InvoiceSummary';
-import InvoiceTermsSection from './invoice/InvoiceTermsSection';
-import InvoiceActionBar from './invoice/InvoiceActionBar';
 
 export default function InvoiceForm({
   invoice,
@@ -30,7 +28,7 @@ export default function InvoiceForm({
   onReset,
   onLoadSample,
   onBackToDashboard,
-  isSaved = false,
+  _isSaved = false,
   onPreview,
   onPrint,
   onDownloadPdf,
@@ -60,6 +58,14 @@ export default function InvoiceForm({
       current[keys[keys.length - 1]] = value;
       return copy;
     });
+  };
+
+  // Transaction type toggle handler
+  const handleSetTransactionType = (type) => {
+    setInvoice((prev) => ({
+      ...prev,
+      transactionType: type,
+    }));
   };
 
   // Customer selection callback
@@ -218,8 +224,8 @@ export default function InvoiceForm({
   };
 
   return (
-    <div className="space-y-6 text-slate-200">
-      {/* 1. Invoice Page Header */}
+    <div className="max-w-[1240px] mx-auto px-4 sm:px-6 py-6 pb-24 text-[#F2EFE9] font-sans">
+      {/* Page Header: Title, Back link, Date, Sample, Settings, Clear */}
       <InvoicePageHeader
         invoice={invoice}
         business={business}
@@ -229,10 +235,11 @@ export default function InvoiceForm({
         onBackToDashboard={onBackToDashboard}
       />
 
-      {/* 2. Customer Particulars & Invoice Metadata Grid */}
+      {/* Main Two-Column Layout matching Simple New Bill – New Bill.html */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Customer Particulars (7 cols on large desktop, 12 on mobile/tablet) */}
-        <div className="lg:col-span-7">
+        {/* Left Side: Steps 1, 2, 3 and Extra details */}
+        <div className="lg:col-span-7 xl:col-span-8 space-y-6 min-w-0">
+          {/* Step 1: Who is buying? */}
           <CustomerDetailsSection
             customer={invoice.customer}
             onUpdateField={updateField}
@@ -240,70 +247,54 @@ export default function InvoiceForm({
             customers={customers}
             businessStateCode={business?.stateCode || '32'}
             onOpenCustomerPicker={() => setIsCustomerPickerOpen(true)}
+            transactionType={invoice.transactionType}
+            onSetTransactionType={handleSetTransactionType}
           />
-        </div>
 
-        {/* Invoice Metadata & Terms (5 cols on large desktop, 12 on mobile/tablet) */}
-        <div className="lg:col-span-5">
+          {/* Step 2: What are they buying? */}
+          <InvoiceItemsSection
+            items={invoice.items || []}
+            onAddItem={addItem}
+            onUpdateItem={updateItem}
+            onUpdateCategory={changeItemCategory}
+            onRemoveItem={removeItem}
+            onOpenCatalogPicker={() => setIsCatalogPickerOpen(true)}
+            isInterstate={isInterstate}
+            invoice={invoice}
+            onUpdateField={updateField}
+          />
+
+          {/* Step 3: How is the customer paying? */}
+          <InvoicePaymentSection
+            invoice={invoice}
+            onUpdateField={updateField}
+          />
+
+          {/* Extra details (not needed for most bills) */}
           <InvoiceMetadataSection
             invoice={invoice}
             onUpdateField={updateField}
           />
         </div>
-      </div>
 
-      {/* 3. Multi-Category Line Items Section */}
-      <InvoiceItemsSection
-        items={invoice.items || []}
-        onAddItem={addItem}
-        onUpdateItem={updateItem}
-        onUpdateCategory={changeItemCategory}
-        onRemoveItem={removeItem}
-        onOpenCatalogPicker={() => setIsCatalogPickerOpen(true)}
-        isInterstate={isInterstate}
-      />
-
-      {/* 4. Notes, Deductions & Calculation Breakdown Summary Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left: Deductions, Terms & Staff Notes (7 cols on large desktop) */}
-        <div className="lg:col-span-7 space-y-6">
-          <InvoiceDeductionsSection
-            invoice={invoice}
-            onUpdateField={updateField}
-          />
-          <InvoiceTermsSection
-            invoice={invoice}
-            onUpdateField={updateField}
-          />
-        </div>
-
-        {/* Right: Calculation Summary Card (5 cols on large desktop) */}
-        <div className="lg:col-span-5">
+        {/* Right Side: Sticky Bill Total Sidebar */}
+        <div className="lg:col-span-5 xl:col-span-4 sticky top-6">
           <InvoiceSummary
             invoice={invoice}
             totals={totals}
-            onUpdateField={updateField}
             isInterstate={isInterstate}
+            onSaveInvoice={handleSaveInvoice}
+            onSaveDraft={handleSaveDraft}
+            onPreview={onPreview}
+            onPrint={onPrint}
+            onDownloadPdf={onDownloadPdf}
+            onShareWhatsApp={onShareWhatsApp}
+            isPrinting={isPrinting}
+            isPdfGenerating={isPdfGenerating}
+            isSaving={isSaving}
           />
         </div>
       </div>
-
-      {/* 5. Bottom Fixed Action Toolbar */}
-      <InvoiceActionBar
-        itemsCount={invoice.items?.length || 0}
-        taxableValue={totals.totalTaxableValue}
-        netPayable={totals.netPayable}
-        onSaveDraft={handleSaveDraft}
-        onSaveInvoice={handleSaveInvoice}
-        onPreview={onPreview}
-        onPrint={onPrint}
-        isPrinting={isPrinting}
-        onDownloadPdf={onDownloadPdf}
-        onShareWhatsApp={onShareWhatsApp}
-        isSaved={isSaved}
-        isPdfGenerating={isPdfGenerating}
-        isSaving={isSaving}
-      />
 
       {/* Catalog Item Picker Modal */}
       <CatalogItemPickerModal

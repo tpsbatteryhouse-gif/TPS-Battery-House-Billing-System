@@ -34,6 +34,7 @@ const suites = [
   'scratch/test_financial_total_zero_repair.mjs',
   'scratch/test_invoice_print_workflow.mjs',
   'scratch/test_invoice_layout_responsive.mjs',
+  'scratch/test_invoice_redesign.mjs',
 ];
 
 function checkEmulatorRunning() {
