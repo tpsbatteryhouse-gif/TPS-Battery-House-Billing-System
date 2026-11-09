@@ -18,8 +18,9 @@ export default function InvoiceItemRow({
   onUpdateItem,
   onUpdateCategory,
   onRemoveItem,
-  isOnlyItem = false,
+  _isOnlyItem = false,
   isInterstate = false,
+  errors = [],
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -45,19 +46,42 @@ export default function InvoiceItemRow({
   const subtitle = subtitleParts.length > 0 ? subtitleParts.join(' · ') : (item.category ? `${item.category.toUpperCase()} · GST ${item.gstRate || 18}%` : '');
 
   const categoryCfg = CATEGORY_CONFIG[item.category] || CATEGORY_CONFIG[PRODUCT_CATEGORIES.BATTERY];
+  const hasErrors = errors && errors.length > 0;
 
   return (
-    <div className="bg-[#12161B] border border-[#2A3039] rounded-xl p-4 sm:p-5 transition-all">
+    <div
+      className={`bg-[#12161B] border rounded-xl p-4 sm:p-5 transition-all ${
+        hasErrors
+          ? 'border-red-500/80 ring-1 ring-red-500/40 bg-red-950/20'
+          : 'border-[#2A3039]'
+      }`}
+    >
       {/* Primary Item Row matching HTML reference */}
       <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-6">
         {/* Item Title & Specs Note */}
         <div className="flex-1 min-w-[240px]">
-          <div className="text-base sm:text-lg font-bold text-[#F2EFE9] leading-tight">
-            {item.name || <span className="text-[#A8A294] italic">Unnamed Item</span>}
-          </div>
+          {item.name ? (
+            <div className="text-base sm:text-lg font-bold text-[#F2EFE9] leading-tight">
+              {item.name}
+            </div>
+          ) : (
+            <input
+              type="text"
+              value={item.name || ''}
+              onChange={(e) => onUpdateItem(index, 'name', e.target.value)}
+              placeholder="Product or service name *"
+              className="inv-fld h-10 sm:h-11 text-base font-bold mb-1"
+            />
+          )}
           {subtitle && (
             <div className="text-xs sm:text-sm text-[#A8A294] mt-0.5">
               {subtitle}
+            </div>
+          )}
+          {hasErrors && (
+            <div className="text-xs text-red-400 font-semibold mt-1.5 flex items-center gap-1.5">
+              <span>⚠️</span>
+              <span>{errors.join(' • ')}</span>
             </div>
           )}
           <button
@@ -123,8 +147,7 @@ export default function InvoiceItemRow({
         <button
           type="button"
           onClick={() => onRemoveItem(index)}
-          disabled={isOnlyItem}
-          className="inv-link text-sm sm:text-base text-[#FF8A80] hover:text-[#ff6b60] disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+          className="inv-link text-sm sm:text-base text-[#FF8A80] hover:text-[#ff6b60] shrink-0"
         >
           Remove
         </button>

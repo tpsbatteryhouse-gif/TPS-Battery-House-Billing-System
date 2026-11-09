@@ -35,6 +35,7 @@ const suites = [
   'scratch/test_invoice_print_workflow.mjs',
   'scratch/test_invoice_layout_responsive.mjs',
   'scratch/test_invoice_redesign.mjs',
+  'scratch/test_invoice_empty_initialization_and_print_validation.mjs',
 ];
 
 function checkEmulatorRunning() {

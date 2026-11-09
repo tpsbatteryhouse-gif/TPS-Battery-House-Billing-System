@@ -12,7 +12,7 @@ import BusinessSettingsModal from './components/BusinessSettingsModal';
 import ProductCatalogView from './components/ProductCatalogView';
 import CustomerManagementView from './components/CustomerManagementView';
 import StaffManagementView from './components/StaffManagementView';
-import { getSampleInvoiceData } from './utils/defaults';
+import { getSampleInvoiceData, createEmptyInvoice } from './utils/defaults';
 import {
   PRODUCT_CATEGORIES,
   CATEGORY_CONFIG,
@@ -20,7 +20,7 @@ import {
   inferTransactionType,
   normalizeInvoiceItem,
 } from './utils/categories';
-import { calculateInvoiceTotals } from './utils/gstCalculations';
+import { calculateInvoiceTotals, validateInvoiceBeforePrint } from './utils/gstCalculations';
 import { formatINR } from './utils/numberToWords';
 import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './context/useAuth';
@@ -54,9 +54,22 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
   const [invoice, setInvoice] = useState(() => {
     try {
       const draft = localStorage.getItem('tps_invoice_draft');
-      return draft ? JSON.parse(draft) : getSampleInvoiceData();
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        // Clean out legacy single unnamed placeholder item if found in stored draft
+        if (
+          Array.isArray(parsed.items) &&
+          parsed.items.length === 1 &&
+          !parsed.items[0].name &&
+          Number(parsed.items[0].rate || 0) === 0
+        ) {
+          parsed.items = [];
+        }
+        return parsed;
+      }
+      return createEmptyInvoice('TPS/2026-27/---');
     } catch {
-      return getSampleInvoiceData();
+      return createEmptyInvoice('TPS/2026-27/---');
     }
   });
 
@@ -88,6 +101,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState('info');
 
   // Editor View Mode: 'edit' (default: full-width editor), 'preview' (dedicated full-width preview), 'split' (optional side-by-side)
   const [editorMode, setEditorMode] = useState('edit');
@@ -129,9 +143,13 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
   };
 
   // Toast feedback helper
-  const showToast = (msg) => {
+  const showToast = (msg, type = 'info') => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(''), 3000);
+    setToastType(type);
+    setTimeout(() => {
+      setToastMessage('');
+      setToastType('info');
+    }, 3500);
   };
 
   // Calculate totals for active invoice in editor
@@ -181,62 +199,12 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     showToast(`Added "${product.name}" to bill!`);
   };
 
-  // Handle New Invoice trigger (loads blank template into editor or opens modal)
+  // Handle New Invoice trigger (loads clean blank template with zero items into editor)
   const handleStartNewInvoice = () => {
     const newInvNo = getNextInvoiceNumber();
     const today = new Date().toISOString().split('T')[0];
 
-    const freshInvoice = {
-      id: 'inv-' + Date.now(),
-      invoiceNumber: newInvNo,
-      invoiceDate: today,
-      dueDate: today,
-      transactionType: TRANSACTION_TYPES.B2B,
-      paymentMode: 'Cash',
-      paymentStatus: 'Draft',
-      placeOfSupply: 'Kerala (32)',
-      reverseCharge: 'No',
-      customer: {
-        name: '',
-        phone: '',
-        address: '',
-        city: 'Thrithala',
-        district: 'Palakkad',
-        state: 'Kerala',
-        stateCode: '32',
-        pincode: '679552',
-        gstin: '',
-      },
-      items: [
-        {
-          id: 'item-1',
-          name: '',
-          category: PRODUCT_CATEGORIES.BATTERY,
-          subcategory: 'Tubular Battery',
-          brand: '',
-          model: '',
-          specs: {},
-          hsn: '8507',
-          serialNo: '',
-          warranty: '36 Months',
-          qty: 1,
-          unit: 'Nos',
-          rate: 0,
-          isTaxInclusive: true,
-          gstRate: 28,
-        },
-      ],
-      scrapExchange: {
-        enabled: false,
-        description: 'Old 150Ah Scrap Battery Buyback',
-        amount: 0,
-      },
-      additionalDiscount: 0,
-      roundOffManual: null,
-      netPayable: 0,
-      notes: 'Thank you for choosing TPS BATTERYS HOUSE.',
-      createdAt: new Date().toISOString(),
-    };
+    const freshInvoice = createEmptyInvoice(newInvNo, today);
 
     setInvoice(freshInvoice);
     setActiveView('editor');
@@ -259,6 +227,13 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
 
   // Handle Saving bill from within the Full GST Billing Studio
   const handleSaveInvoiceInEditor = async (statusOverride = null) => {
+    // Validate invoice form state before saving
+    const validation = validateInvoiceBeforePrint(invoice);
+    if (!validation.isValid) {
+      showToast(validation.errorSummary || 'Please add at least one product or service before saving.', 'error');
+      return false;
+    }
+
     try {
       const stableId = invoice.id || ('inv-' + Date.now());
       const txType = inferTransactionType(invoice);
@@ -341,6 +316,14 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
   // Direct & Vector Print Workflow
   const handlePrint = async () => {
     if (isPrinting) return;
+
+    // Validate invoice form state before printing
+    const validation = validateInvoiceBeforePrint(invoice);
+    if (!validation.isValid) {
+      showToast(validation.errorSummary || 'Please add at least one product or service before printing.', 'error');
+      return false;
+    }
+
     setIsPrinting(true);
     try {
       const invoiceToPrint = {
@@ -353,7 +336,13 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
       await printInvoicePdf(invoiceToPrint, business, invoiceCopy);
     } catch (err) {
       console.warn('Dedicated vector print error, falling back to direct window.print():', err);
-      window.print();
+      // Even in fallback, never print if validation failed
+      const reValidation = validateInvoiceBeforePrint(invoice);
+      if (reValidation.isValid) {
+        window.print();
+      } else {
+        showToast(reValidation.errorSummary, 'error');
+      }
     } finally {
       setIsPrinting(false);
     }
@@ -361,6 +350,13 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
 
   // Download PDF (lazy loads html2canvas and jsPDF on demand)
   const handleDownloadPdf = async () => {
+    // Validate invoice form state before downloading PDF
+    const validation = validateInvoiceBeforePrint(invoice);
+    if (!validation.isValid) {
+      showToast(validation.errorSummary || 'Please add at least one product or service before downloading PDF.', 'error');
+      return false;
+    }
+
     setIsPdfGenerating(true);
     try {
       const { downloadInvoicePdf } = await import('./utils/pdfExport.js');
@@ -419,8 +415,15 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-white">
       {/* Toast Notification Banner */}
       {toastMessage && (
-        <div className="fixed top-16 right-4 z-50 bg-amber-500 text-slate-950 px-4 py-2 rounded-xl font-bold text-xs shadow-2xl flex items-center gap-2 animate-bounce">
-          <CheckCircle className="w-4 h-4" />
+        <div
+          role="alert"
+          aria-live="assertive"
+          className={`fixed top-16 right-4 z-50 px-4 py-2.5 rounded-xl font-bold text-xs shadow-2xl flex items-center gap-2 border ${
+            toastType === 'error'
+              ? 'bg-red-600 text-white border-red-400'
+              : 'bg-amber-500 text-slate-950 border-amber-400'
+          }`}
+        >
           <span>{toastMessage}</span>
         </div>
       )}

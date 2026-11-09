@@ -181,6 +181,124 @@ export function validateInvoiceFinancials(invoice) {
 }
 
 /**
+ * Authoritative Pre-Print and Pre-Save Invoice Form Validator.
+ * Validates that an invoice contains real, fully-configured line items
+ * and meets statutory GST, quantity, pricing, and naming rules before printing or saving.
+ *
+ * @param {Object} invoice
+ * @returns {{
+ *   isValid: boolean,
+ *   errors: string[],
+ *   errorSummary: string | null,
+ *   itemErrors: Object<number, string[]>,
+ *   hasEmptyItems: boolean
+ * }}
+ */
+export function validateInvoiceBeforePrint(invoice) {
+  const errors = [];
+  const itemErrors = {};
+
+  if (!invoice || typeof invoice !== 'object') {
+    const msg = 'Please add at least one product or service before printing this invoice.';
+    return {
+      isValid: false,
+      errors: [msg],
+      errorSummary: 'Your bill is empty. Please add a product or service before printing.',
+      itemErrors: {},
+      hasEmptyItems: true,
+    };
+  }
+
+  const items = Array.isArray(invoice.items) ? invoice.items : [];
+
+  // Rule 1 — At least one item
+  if (items.length === 0) {
+    const msg = 'Please add at least one product or service before printing this invoice.';
+    return {
+      isValid: false,
+      errors: [msg],
+      errorSummary: 'Your bill is empty. Please add a product or service before printing.',
+      itemErrors: {},
+      hasEmptyItems: true,
+    };
+  }
+
+  // Iterate over each item
+  items.forEach((item, index) => {
+    const currentItemErrors = [];
+    const itemNum = index + 1;
+    const rawName = item?.name ?? item?.description ?? '';
+    const cleanName = typeof rawName === 'string' ? rawName.trim() : '';
+
+    // Rule 2 & 3 — Product description / No blank placeholder items
+    if (!cleanName || cleanName.toLowerCase() === 'unnamed item' || cleanName.toLowerCase() === 'unnamed') {
+      currentItemErrors.push(`Item ${itemNum}: Please enter the product or service name.`);
+    }
+
+    // Rule 4 — Quantity must be a valid positive number (> 0)
+    const rawQty = item?.qty !== undefined ? item.qty : item?.quantity;
+    if (rawQty === undefined || rawQty === null || (typeof rawQty === 'string' && rawQty.trim() === '')) {
+      currentItemErrors.push(`Item ${itemNum} ("${cleanName || 'Unnamed'}"): Quantity is required.`);
+    } else {
+      const qtyNum = Number(rawQty);
+      if (Number.isNaN(qtyNum) || !Number.isFinite(qtyNum) || qtyNum <= 0) {
+        currentItemErrors.push(`Item ${itemNum} ("${cleanName || 'Unnamed'}"): Please enter a quantity greater than zero.`);
+      }
+    }
+
+    // Rule 5 — Price and financial values
+    const rawRate = item?.rate !== undefined ? item.rate : (item?.unitPrice !== undefined ? item.unitPrice : item?.price);
+    if (rawRate === undefined || rawRate === null || (typeof rawRate === 'string' && rawRate.trim() === '')) {
+      currentItemErrors.push(`Item ${itemNum} ("${cleanName || 'Unnamed'}"): Please enter a valid price.`);
+    } else {
+      const rateNum = Number(rawRate);
+      if (Number.isNaN(rateNum) || !Number.isFinite(rateNum) || rateNum < 0) {
+        currentItemErrors.push(`Item ${itemNum} ("${cleanName || 'Unnamed'}"): Please enter a valid price.`);
+      }
+      // Note on Rule 5: Legitimate zero-value service or complimentary inspection (rateNum === 0) is allowed!
+    }
+
+    // Rule 7 — GST Validation
+    if (item?.gstRate !== undefined && item?.gstRate !== null && item?.gstRate !== '') {
+      const gstNum = Number(item.gstRate);
+      if (Number.isNaN(gstNum) || !FINANCIAL_BOUNDS.ALLOWED_GST_RATES.includes(gstNum)) {
+        currentItemErrors.push(
+          `Item ${itemNum} ("${cleanName || 'Unnamed'}"): Invalid GST rate (${item.gstRate}%). Allowed rates are 0%, 5%, 12%, 18%, 28%.`
+        );
+      }
+    }
+
+    if (currentItemErrors.length > 0) {
+      itemErrors[index] = currentItemErrors;
+      errors.push(...currentItemErrors);
+    }
+  });
+
+  // Deductions validation
+  if (invoice.additionalDiscount !== undefined && invoice.additionalDiscount !== null && invoice.additionalDiscount !== '') {
+    const addDisc = Number(invoice.additionalDiscount);
+    if (Number.isNaN(addDisc) || !Number.isFinite(addDisc) || addDisc < 0) {
+      errors.push('Special invoice discount must be a valid non-negative number.');
+    }
+  }
+
+  if (invoice.scrapExchange && invoice.scrapExchange.enabled) {
+    const scrapAmt = Number(invoice.scrapExchange.amount);
+    if (Number.isNaN(scrapAmt) || !Number.isFinite(scrapAmt) || scrapAmt < 0) {
+      errors.push('Old battery scrap buyback amount must be a valid non-negative number.');
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    errorSummary: errors.length > 0 ? (items.length === 0 ? 'Your bill is empty. Please add a product or service before printing.' : errors[0]) : null,
+    itemErrors,
+    hasEmptyItems: items.length === 0,
+  };
+}
+
+/**
  * Calculates line-level and invoice-level GST values.
  * Handles both Tax Inclusive (MRP reverse calculation) and Tax Exclusive pricing.
  */

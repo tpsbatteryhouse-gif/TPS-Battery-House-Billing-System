@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import QRCode from 'qrcode';
-import { calculateInvoiceTotals, buildUpiUri, verifyInvoiceFinancialConsistency } from './gstCalculations.js';
+import { calculateInvoiceTotals, buildUpiUri, verifyInvoiceFinancialConsistency, validateInvoiceBeforePrint } from './gstCalculations.js';
 import { formatNumber } from './numberToWords.js';
 import {
   formatItemSpecifications,
@@ -18,6 +18,12 @@ import {
  * Output size is typically 50 KB - 90 KB.
  */
 export async function generateVectorPdf(invoice, businessInput, invoiceCopy = 'Original for Buyer') {
+  // Pre-print / pre-generation validation
+  const validation = validateInvoiceBeforePrint(invoice);
+  if (!validation.isValid) {
+    throw new Error(`Cannot generate PDF for invalid invoice: ${validation.errorSummary || 'please add at least one product or service.'}`);
+  }
+
   const business = invoice?.businessSnapshot || businessInput;
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
   const consistency = verifyInvoiceFinancialConsistency(invoice, business?.stateCode || '32');
@@ -789,7 +795,13 @@ export async function printInvoicePdf(
   business,
   invoiceCopy = 'Original for Buyer'
 ) {
-  // 1. Verify consistency using single source of truth
+  // 1. Validate invoice before printing
+  const validation = validateInvoiceBeforePrint(invoice);
+  if (!validation.isValid) {
+    throw new Error(`Cannot print invoice with invalid financial data: ${validation.errorSummary || 'please add at least one product or service.'}`);
+  }
+
+  // 2. Verify consistency using single source of truth
   const consistency = verifyInvoiceFinancialConsistency(
     invoice,
     business?.stateCode || '32'

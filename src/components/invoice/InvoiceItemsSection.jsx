@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
 import {
+  Package,
+  Layers,
+  Plus,
+  AlertTriangle,
+} from 'lucide-react';
+import {
   PRODUCT_CATEGORIES,
 } from '../../utils/categories';
 import { ITEM_PRESETS } from '../../utils/defaults';
@@ -15,6 +21,8 @@ export default function InvoiceItemsSection({
   isInterstate = false,
   invoice,
   onUpdateField,
+  validationErrors = [],
+  itemErrors = {},
 }) {
   const [showDiscount, setShowDiscount] = useState(() => Boolean(invoice?.additionalDiscount && invoice.additionalDiscount > 0));
   const [showExchange, setShowExchange] = useState(() => Boolean(invoice?.scrapExchange?.enabled || (invoice?.scrapExchange?.amount && invoice.scrapExchange.amount > 0)));
@@ -68,7 +76,7 @@ export default function InvoiceItemsSection({
   const popularPresets = ITEM_PRESETS.slice(0, 5);
 
   return (
-    <section className="bg-[#181C22] border border-[#2A3039] rounded-2xl p-6 sm:p-7">
+    <section id="section-invoice-items" className="bg-[#181C22] border border-[#2A3039] rounded-2xl p-6 sm:p-7">
       {/* 2 — Section Heading */}
       <div className="flex items-center gap-3.5 mb-5 sm:mb-6">
         <div className="inv-step">2</div>
@@ -82,11 +90,56 @@ export default function InvoiceItemsSection({
         </div>
       </div>
 
+      {/* Validation Errors Notice Banner */}
+      {validationErrors && validationErrors.length > 0 && (
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="bg-red-950/80 border-2 border-red-500/80 rounded-2xl p-4 sm:p-5 text-red-200 mb-5 shadow-xl"
+        >
+          <div className="flex items-center gap-2.5 font-bold text-red-400 text-base mb-1">
+            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+            <span>Please resolve the following before printing or saving:</span>
+          </div>
+          <ul className="list-disc list-inside space-y-1 text-sm mt-2 text-red-300">
+            {validationErrors.map((err, i) => (
+              <li key={i}>{err}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Item Cards List */}
       <div className="space-y-3.5">
         {items.length === 0 ? (
-          <div className="border-2 border-dashed border-[#7A7568] rounded-xl p-7 text-center text-[#A8A294]">
-            No items yet. Tap an item below to add it.
+          <div className="border border-dashed border-[#7A7568] bg-[#12161B] rounded-2xl p-8 sm:p-10 text-center">
+            <Package className="w-12 h-12 text-[#F2A516] mx-auto mb-3 opacity-90" />
+            <h3 className="text-xl sm:text-2xl font-bold text-[#F2EFE9] mb-1.5">
+              No items added yet
+            </h3>
+            <p className="text-sm sm:text-base text-[#A8A294] max-w-md mx-auto mb-6">
+              Select a product from the catalog or add a new item to this bill.
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              {onOpenCatalogPicker && (
+                <button
+                  type="button"
+                  onClick={onOpenCatalogPicker}
+                  className="inv-pill on text-base py-2.5 px-6"
+                >
+                  <Layers className="w-4 h-4 text-[#F2A516]" />
+                  <span>Browse Products</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => onAddItem(null, PRODUCT_CATEGORIES.BATTERY)}
+                className="inv-pill text-base py-2.5 px-6"
+              >
+                <Plus className="w-4 h-4 text-[#FFC857]" />
+                <span>+ Add Item</span>
+              </button>
+            </div>
           </div>
         ) : (
           items.map((item, index) => (
@@ -97,8 +150,9 @@ export default function InvoiceItemsSection({
               onUpdateItem={onUpdateItem}
               onUpdateCategory={onUpdateCategory}
               onRemoveItem={onRemoveItem}
-              isOnlyItem={items.length <= 1}
+              isOnlyItem={false}
               isInterstate={isInterstate}
+              errors={itemErrors[index]}
             />
           ))
         )}

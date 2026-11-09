@@ -40,7 +40,8 @@ export default function InvoiceSummary({
 
   const handleSaveAndPrint = async () => {
     if (onSaveInvoice) {
-      await onSaveInvoice();
+      const res = await onSaveInvoice();
+      if (res === false) return;
     }
     if (onPrint) {
       onPrint();

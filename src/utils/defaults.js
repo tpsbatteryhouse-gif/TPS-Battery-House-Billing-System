@@ -1,4 +1,4 @@
-import { PRODUCT_CATEGORIES, MULTI_CATEGORY_UNITS } from './categories.js';
+import { PRODUCT_CATEGORIES, MULTI_CATEGORY_UNITS, TRANSACTION_TYPES } from './categories.js';
 
 export const DEFAULT_BUSINESS = {
   businessName: 'TPS BATTERYS HOUSE',
@@ -187,6 +187,51 @@ export const PAYMENT_MODES = [
 export const UNITS_LIST = MULTI_CATEGORY_UNITS;
 
 export const GST_RATES = [28, 18, 12, 5, 0];
+
+// Authoritative Empty Invoice Initialization
+// Creates a clean blank invoice template with zero line items
+export const createEmptyInvoice = (invoiceNumber = 'TPS/2026-27/---', date = null) => {
+  const today = date || new Date().toISOString().split('T')[0];
+
+  return {
+    id: 'inv-' + Date.now(),
+    invoiceNumber: invoiceNumber,
+    invoiceDate: today,
+    dueDate: today,
+    transactionType: TRANSACTION_TYPES.B2C,
+    paymentMode: 'Cash',
+    paymentStatus: 'Paid',
+    placeOfSupply: 'Kerala (32)',
+    reverseCharge: 'No',
+    customer: {
+      name: '',
+      phone: '',
+      address: '',
+      shippingAddress: '',
+      city: 'Thrithala',
+      district: 'Palakkad',
+      state: 'Kerala',
+      stateCode: '32',
+      pincode: '679552',
+      gstin: '',
+      pan: '',
+    },
+    items: [], // Crucial: Completely empty array. No fake/unnamed item!
+    scrapExchange: {
+      enabled: false,
+      description: '',
+      amount: 0,
+    },
+    additionalDiscount: 0,
+    roundOffManual: null,
+    netPayable: 0,
+    notes: '',
+    staffNotes: '',
+    orderNumber: '',
+    ewayBillNo: '',
+    createdAt: new Date().toISOString(),
+  };
+};
 
 // Default sample test invoice demonstrating a mixed-category purchase:
 // Battery + Inverter + Solar Panel + Installation Service

@@ -4,7 +4,7 @@ import {
   CATEGORY_CONFIG,
   TRANSACTION_TYPES,
 } from '../utils/categories';
-import { calculateInvoiceTotals } from '../utils/gstCalculations';
+import { calculateInvoiceTotals, validateInvoiceBeforePrint } from '../utils/gstCalculations';
 import { generateId } from '../utils/idGenerator';
 import { INVOICE_STATUSES } from '../data/mockData';
 import CatalogItemPickerModal from './CatalogItemPickerModal';
@@ -40,6 +40,8 @@ export default function InvoiceForm({
   const [isCatalogPickerOpen, setIsCatalogPickerOpen] = useState(false);
   const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [validationErrors, setValidationErrors] = useState([]);
+  const [itemErrors, setItemErrors] = useState({});
 
   // Authoritative GST and Totals computation
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
@@ -188,21 +190,40 @@ export default function InvoiceForm({
     });
   };
 
-  // Remove item
+  // Remove item (allows removing down to 0 items to return to clean empty state)
   const removeItem = (index) => {
-    if (invoice.items.length <= 1) {
-      alert('Invoice must have at least one line item.');
-      return;
-    }
     setInvoice((prev) => ({
       ...prev,
       items: prev.items.filter((_, i) => i !== index),
     }));
+    setValidationErrors([]);
+    setItemErrors({});
+  };
+
+  // Run authoritative pre-print and pre-save validation
+  const runValidation = () => {
+    const res = validateInvoiceBeforePrint(invoice);
+    if (!res.isValid) {
+      setValidationErrors(res.errors);
+      setItemErrors(res.itemErrors);
+      const el = document.getElementById('section-invoice-items');
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      return false;
+    }
+    setValidationErrors([]);
+    setItemErrors({});
+    return true;
   };
 
   // Save as Draft
   const handleSaveDraft = async () => {
     if (!onSave) return;
+    if (!invoice?.items || invoice.items.length === 0) {
+      setValidationErrors(['Please add at least one product or service before saving as draft.']);
+      return;
+    }
     setIsSaving(true);
     try {
       await onSave(INVOICE_STATUSES.DRAFT);
@@ -214,6 +235,7 @@ export default function InvoiceForm({
   // Save Final / Issue Bill
   const handleSaveInvoice = async () => {
     if (!onSave) return;
+    if (!runValidation()) return;
     setIsSaving(true);
     try {
       const targetStatus = invoice.paymentStatus || INVOICE_STATUSES.PENDING;
@@ -221,6 +243,16 @@ export default function InvoiceForm({
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handlePrintValidated = () => {
+    if (!runValidation()) return;
+    if (onPrint) onPrint();
+  };
+
+  const handleDownloadPdfValidated = () => {
+    if (!runValidation()) return;
+    if (onDownloadPdf) onDownloadPdf();
   };
 
   return (
@@ -262,6 +294,8 @@ export default function InvoiceForm({
             isInterstate={isInterstate}
             invoice={invoice}
             onUpdateField={updateField}
+            validationErrors={validationErrors}
+            itemErrors={itemErrors}
           />
 
           {/* Step 3: How is the customer paying? */}
@@ -286,8 +320,8 @@ export default function InvoiceForm({
             onSaveInvoice={handleSaveInvoice}
             onSaveDraft={handleSaveDraft}
             onPreview={onPreview}
-            onPrint={onPrint}
-            onDownloadPdf={onDownloadPdf}
+            onPrint={handlePrintValidated}
+            onDownloadPdf={handleDownloadPdfValidated}
             onShareWhatsApp={onShareWhatsApp}
             isPrinting={isPrinting}
             isPdfGenerating={isPdfGenerating}
