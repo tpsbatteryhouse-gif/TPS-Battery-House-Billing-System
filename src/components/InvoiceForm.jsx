@@ -37,6 +37,7 @@ export default function InvoiceForm({
   onShareWhatsApp,
   onOpenSettings,
   isPdfGenerating = false,
+  isPrinting = false,
 }) {
   const [isCatalogPickerOpen, setIsCatalogPickerOpen] = useState(false);
   const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
@@ -296,6 +297,7 @@ export default function InvoiceForm({
         onSaveInvoice={handleSaveInvoice}
         onPreview={onPreview}
         onPrint={onPrint}
+        isPrinting={isPrinting}
         onDownloadPdf={onDownloadPdf}
         onShareWhatsApp={onShareWhatsApp}
         isSaved={isSaved}

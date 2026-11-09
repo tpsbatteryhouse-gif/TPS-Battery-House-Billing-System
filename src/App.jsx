@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CheckCircle, Edit3, Download } from 'lucide-react';
+import { CheckCircle, Edit3, Download, Printer, Loader2 } from 'lucide-react';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import AllInvoicesView from './components/AllInvoicesView';
@@ -92,6 +92,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
   // Editor View Mode: 'edit' (default: full-width editor), 'preview' (dedicated full-width preview), 'split' (optional side-by-side)
   const [editorMode, setEditorMode] = useState('edit');
   const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
   const [isSavedFeedback, setIsSavedFeedback] = useState(false);
   const [invoiceCopy, setInvoiceCopy] = useState('Original for Recipient');
 
@@ -337,10 +338,25 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     showToast('Loaded sample Fuze 1100 Combo bill');
   };
 
-  // Direct Print
-  const handlePrint = () => {
-    setInvoice((prev) => ({ ...prev, netPayable: totals.netPayable }));
-    window.print();
+  // Direct & Vector Print Workflow
+  const handlePrint = async () => {
+    if (isPrinting) return;
+    setIsPrinting(true);
+    try {
+      const invoiceToPrint = {
+        ...invoice,
+        netPayable: totals.netPayable,
+      };
+      setInvoice(invoiceToPrint);
+
+      const { printInvoicePdf } = await import('./utils/pdfExport.js');
+      await printInvoicePdf(invoiceToPrint, business, invoiceCopy);
+    } catch (err) {
+      console.warn('Dedicated vector print error, falling back to direct window.print():', err);
+      window.print();
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   // Download PDF (lazy loads html2canvas and jsPDF on demand)
@@ -454,30 +470,42 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
               <div className="space-y-4">
                 {/* MODE 1: DEDICATED FULL-WIDTH INVOICE EDITOR (DEFAULT) */}
                 {editorMode === 'edit' && (
-                  <div className="w-full no-print">
-                    <InvoiceForm
-                      invoice={invoice}
-                      setInvoice={setInvoice}
-                      catalog={catalog}
-                      customers={customers}
-                      business={business}
-                      onSave={handleSaveInvoiceInEditor}
-                      onReset={handleResetInvoice}
-                      onLoadSample={handleLoadSample}
-                      onBackToDashboard={() => setActiveView('dashboard')}
-                      isSaved={isSavedFeedback}
-                      onPreview={() => {
-                        setInvoice((prev) => ({ ...prev, netPayable: totals.netPayable }));
-                        setEditorMode('preview');
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                      }}
-                      onPrint={handlePrint}
-                      onDownloadPdf={handleDownloadPdf}
-                      isPdfGenerating={isPdfGenerating}
-                      onShareWhatsApp={handleShareWhatsApp}
-                      onOpenSettings={() => setIsSettingsOpen(true)}
-                    />
-                  </div>
+                  <>
+                    <div className="w-full no-print">
+                      <InvoiceForm
+                        invoice={invoice}
+                        setInvoice={setInvoice}
+                        catalog={catalog}
+                        customers={customers}
+                        business={business}
+                        onSave={handleSaveInvoiceInEditor}
+                        onReset={handleResetInvoice}
+                        onLoadSample={handleLoadSample}
+                        onBackToDashboard={() => setActiveView('dashboard')}
+                        isSaved={isSavedFeedback}
+                        onPreview={() => {
+                          setInvoice((prev) => ({ ...prev, netPayable: totals.netPayable }));
+                          setEditorMode('preview');
+                          window.scrollTo({ top: 0, behavior: 'smooth' });
+                        }}
+                        onPrint={handlePrint}
+                        isPrinting={isPrinting}
+                        onDownloadPdf={handleDownloadPdf}
+                        isPdfGenerating={isPdfGenerating}
+                        onShareWhatsApp={handleShareWhatsApp}
+                        onOpenSettings={() => setIsSettingsOpen(true)}
+                      />
+                    </div>
+
+                    {/* DEDICATED INVOICE PRINT CONTAINER: Always present in DOM for print mode */}
+                    <div className="hidden print:block print:w-full print:m-0 print:p-0 print-only">
+                      <InvoicePreview
+                        invoice={{ ...invoice, netPayable: totals.netPayable }}
+                        business={business}
+                        invoiceCopy={invoiceCopy}
+                      />
+                    </div>
+                  </>
                 )}
 
                 {/* MODE 2: DEDICATED FULL-WIDTH INVOICE PREVIEW */}
@@ -516,6 +544,25 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                             <option value="Triplicate for Records">Triplicate for Records</option>
                           </select>
                         </div>
+
+                        <button
+                          type="button"
+                          onClick={handlePrint}
+                          disabled={isPrinting}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-all shadow-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-50"
+                        >
+                          {isPrinting ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                              <span>Preparing Print...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Printer className="w-3.5 h-3.5 text-amber-400" />
+                              <span>Print Bill</span>
+                            </>
+                          )}
+                        </button>
 
                         <button
                           type="button"
@@ -559,6 +606,25 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                       >
                         <Edit3 className="w-4 h-4 text-amber-400" />
                         <span>Return to Invoice Editor</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handlePrint}
+                        disabled={isPrinting}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-semibold flex items-center gap-2 border border-slate-700 transition-colors shadow-sm disabled:opacity-50"
+                      >
+                        {isPrinting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                            <span>Preparing Print...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Printer className="w-4 h-4 text-amber-400" />
+                            <span>Print A4 Bill</span>
+                          </>
+                        )}
                       </button>
 
                       <button

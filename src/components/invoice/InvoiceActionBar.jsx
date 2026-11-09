@@ -23,6 +23,7 @@ export default function InvoiceActionBar({
   onShareWhatsApp,
   isSaved = false,
   isPdfGenerating = false,
+  isPrinting = false,
   isSaving = false,
 }) {
   return (
@@ -88,11 +89,21 @@ export default function InvoiceActionBar({
           <button
             type="button"
             onClick={onPrint}
-            className="px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700 rounded-xl flex items-center gap-1.5 transition-colors shadow-sm"
+            disabled={isPrinting}
+            className="px-3 py-1.5 text-xs font-semibold text-slate-200 bg-slate-800 hover:bg-slate-700 hover:text-white border border-slate-700 rounded-xl flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
             title="Print A4 Tax Invoice"
           >
-            <Printer className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Print</span>
+            {isPrinting ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                <span className="hidden sm:inline">Preparing Print...</span>
+              </>
+            ) : (
+              <>
+                <Printer className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Print</span>
+              </>
+            )}
           </button>
         )}
 
