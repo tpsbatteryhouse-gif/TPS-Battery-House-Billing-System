@@ -38,6 +38,7 @@ const suites = [
   'scratch/test_invoice_empty_initialization_and_print_validation.mjs',
   'scratch/test_firestore_invoice_save_permission.mjs',
   'scratch/test_invoice_form_state_integrity.mjs',
+  'scratch/test_invoice_line_item_display.mjs',
 ];
 
 function checkEmulatorRunning() {
@@ -90,7 +91,7 @@ async function ensureEmulator() {
     { stdio: 'ignore', detached: true }
   );
 
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500));
     if (await checkEmulatorRunning()) {
       console.log('[Runner] Emulator is ready.');

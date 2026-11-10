@@ -17,7 +17,7 @@ import { DEFAULT_BUSINESS_ID } from '../context/authConstants.js';
 import { useAuth } from '../context/useAuth.js';
 
 export function useInvoices(businessId = DEFAULT_BUSINESS_ID, businessConfig = {}) {
-  const { user, permissions } = useAuth();
+  const { user, member, permissions } = useAuth();
 
   // 1. Synchronous initial state from localStorage cache to prevent layout shift
   const [invoices, setInvoices] = useState(() => {
@@ -88,7 +88,15 @@ export function useInvoices(businessId = DEFAULT_BUSINESS_ID, businessConfig = {
 
     if (isInvoiceMigrationNeeded()) {
       isMigratingRef.current = true;
-      migrateLocalInvoicesToFirestore(businessId, user)
+      const authUser = user
+        ? {
+            ...user,
+            role: member?.role,
+            status: member?.status,
+            permissions,
+          }
+        : null;
+      migrateLocalInvoicesToFirestore(businessId, authUser)
         .then((res) => {
           if (res.migrated > 0) {
             console.log(`[TPS Migration] Migrated ${res.migrated} invoices to Firestore.`);
@@ -101,7 +109,7 @@ export function useInvoices(businessId = DEFAULT_BUSINESS_ID, businessConfig = {
           isMigratingRef.current = false;
         });
     }
-  }, [businessId, permissions?.canCreateInvoice, user]);
+  }, [businessId, permissions?.canCreateInvoice, user, member, permissions]);
 
   // 4. Save Invoice (Atomic Create or Role-checked Update)
   const saveInvoice = useCallback(
@@ -110,22 +118,39 @@ export function useInvoices(businessId = DEFAULT_BUSINESS_ID, businessConfig = {
         (i) => (i.id && i.id === invoiceData.id) || (i.invoiceNumber && i.invoiceNumber === invoiceData.invoiceNumber)
       );
 
+      const authUser = user
+        ? {
+            ...user,
+            role: member?.role,
+            status: member?.status,
+            permissions,
+          }
+        : null;
+
       if (isExisting) {
-        return await updateInvoice(businessId, invoiceData.id, invoiceData, user);
+        return await updateInvoice(businessId, invoiceData.id, invoiceData, authUser);
       } else {
         const prefix = businessConfig.invoicePrefix || 'TPS/2026-27/';
-        return await createInvoiceWithCounter(businessId, invoiceData, user, { prefix });
+        return await createInvoiceWithCounter(businessId, invoiceData, authUser, { prefix });
       }
     },
-    [businessId, invoices, user, businessConfig.invoicePrefix]
+    [businessId, invoices, user, member, permissions, businessConfig.invoicePrefix]
   );
 
   // 5. Update Payment Status
   const changeInvoiceStatus = useCallback(
     async (invoiceId, newStatus) => {
-      return await updateInvoicePaymentStatus(businessId, invoiceId, newStatus, user);
+      const authUser = user
+        ? {
+            ...user,
+            role: member?.role,
+            status: member?.status,
+            permissions,
+          }
+        : null;
+      return await updateInvoicePaymentStatus(businessId, invoiceId, newStatus, authUser);
     },
-    [businessId, user]
+    [businessId, user, member, permissions]
   );
 
   // 6. Delete Invoice (Admin only)

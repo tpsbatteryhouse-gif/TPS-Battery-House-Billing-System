@@ -139,7 +139,7 @@ export default function InvoiceItemRow({
 
         {/* Line Total */}
         <div className="min-w-[100px] text-right text-lg sm:text-xl font-bold font-mono text-[#F2EFE9] shrink-0">
-          ₹{formatNumber(lineCalcs.total)}
+          ₹{formatNumber(lineCalcs.lineTotal ?? lineCalcs.total)}
         </div>
 
         {/* Remove Link Button */}
