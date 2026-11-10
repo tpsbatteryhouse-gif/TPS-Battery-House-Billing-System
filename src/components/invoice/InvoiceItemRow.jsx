@@ -34,8 +34,7 @@ export default function InvoiceItemRow({
   };
 
   const handlePriceChange = (val) => {
-    const num = parseFloat(val);
-    onUpdateItem(index, 'rate', isNaN(num) ? 0 : num);
+    onUpdateItem(index, 'rate', val);
   };
 
   // Build descriptive subtitle from warranty and specs

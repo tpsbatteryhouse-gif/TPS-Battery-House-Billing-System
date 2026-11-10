@@ -202,7 +202,7 @@ export const createEmptyInvoice = (invoiceNumber = 'TPS/2026-27/---', date = nul
     paymentMode: 'Cash',
     paymentStatus: 'Paid',
     placeOfSupply: 'Kerala (32)',
-    reverseCharge: 'No',
+    reverseCharge: false,
     customer: {
       name: '',
       phone: '',
@@ -246,7 +246,7 @@ export const getSampleInvoiceData = () => {
     paymentMode: 'Bank Transfer (NEFT/RTGS/IMPS)',
     paymentStatus: 'Paid',
     placeOfSupply: 'Kerala (32)',
-    reverseCharge: 'No',
+    reverseCharge: false,
     transactionType: 'B2B',
     ewayBillNo: '272584310896',
     poNumber: 'PO-2026-GV-891',

@@ -23,7 +23,7 @@ export default function InvoiceSummary({
   isPdfGenerating = false,
   isSaving = false,
 }) {
-  const isB2B = invoice?.transactionType === 'B2B' || Boolean(invoice?.customer?.gstin && invoice.customer.gstin.trim().length >= 10);
+  const isB2B = invoice?.transactionType === 'B2B';
   const typeLabel = isB2B ? 'Business customer (B2B)' : 'Regular customer (B2C)';
   const customerName = (invoice?.customer?.name || '').trim() || 'New Customer';
 

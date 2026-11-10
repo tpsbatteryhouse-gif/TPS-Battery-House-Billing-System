@@ -80,7 +80,7 @@ export default function CustomerDetailsSection({
 
   const gstinVal = (customer?.gstin || '').trim();
   const isGstinFormatValid = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstinVal);
-  const isB2B = transactionType === TRANSACTION_TYPES.B2B || Boolean(gstinVal && gstinVal.length >= 10);
+  const isB2B = transactionType === TRANSACTION_TYPES.B2B;
   const isInterstate = customer?.stateCode && String(customer.stateCode).trim() !== String(businessStateCode).trim();
 
   const handleChooseType = (type) => {
@@ -88,9 +88,6 @@ export default function CustomerDetailsSection({
       onSetTransactionType(type);
     } else {
       onUpdateField('transactionType', type);
-    }
-    if (type === TRANSACTION_TYPES.B2C && !customer?.gstin) {
-      onUpdateField('customer.gstin', '');
     }
   };
 
@@ -293,16 +290,17 @@ export default function CustomerDetailsSection({
               value={customer?.gstin || ''}
               onChange={(e) => {
                 const val = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 15);
-                onUpdateField('customer.gstin', val);
+                const updates = { 'customer.gstin': val };
                 if (val.length >= 2) {
                   const stateCode = val.slice(0, 2);
                   if (/^\d{2}$/.test(stateCode)) {
-                    onUpdateField('customer.stateCode', stateCode);
+                    updates['customer.stateCode'] = stateCode;
                   }
                 }
                 if (val.length >= 12) {
-                  onUpdateField('customer.pan', val.slice(2, 12));
+                  updates['customer.pan'] = val.slice(2, 12);
                 }
+                onUpdateField(updates);
               }}
               placeholder="Example: 32AABCU9603R1ZX"
               className={`inv-fld font-mono uppercase tracking-wider ${

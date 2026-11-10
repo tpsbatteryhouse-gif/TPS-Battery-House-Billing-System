@@ -24,51 +24,61 @@ export default function InvoiceItemsSection({
   validationErrors = [],
   itemErrors = {},
 }) {
-  const [showDiscount, setShowDiscount] = useState(() => Boolean(invoice?.additionalDiscount && invoice.additionalDiscount > 0));
-  const [showExchange, setShowExchange] = useState(() => Boolean(invoice?.scrapExchange?.enabled || (invoice?.scrapExchange?.amount && invoice.scrapExchange.amount > 0)));
+  const [discountOpen, setDiscountOpen] = useState(false);
+  const [exchangeOpen, setExchangeOpen] = useState(false);
 
-  // Sync state if invoice props update externally
-  const discountVal = invoice?.additionalDiscount || 0;
-  const scrapVal = invoice?.scrapExchange?.amount || 0;
+  // Authoritative open state: visibly open if invoice has value or user toggled open
+  const showDiscount = Boolean(
+    (invoice?.additionalDiscount !== undefined && Number(invoice?.additionalDiscount) > 0) ||
+    discountOpen
+  );
+  const showExchange = Boolean(
+    invoice?.scrapExchange?.enabled ||
+    (invoice?.scrapExchange?.amount !== undefined && Number(invoice?.scrapExchange?.amount) > 0) ||
+    exchangeOpen
+  );
+
+  const discountVal = invoice?.additionalDiscount ?? 0;
+  const scrapVal = invoice?.scrapExchange?.amount ?? 0;
 
   const handleToggleDiscount = () => {
     if (showDiscount) {
+      setDiscountOpen(false);
       if (onUpdateField) onUpdateField('additionalDiscount', 0);
-      setShowDiscount(false);
     } else {
-      setShowDiscount(true);
+      setDiscountOpen(true);
     }
   };
 
   const handleDiscountChange = (val) => {
-    const num = parseFloat(val);
     if (onUpdateField) {
-      onUpdateField('additionalDiscount', isNaN(num) ? 0 : num);
+      onUpdateField('additionalDiscount', val);
     }
   };
 
   const handleToggleExchange = () => {
     if (showExchange) {
+      setExchangeOpen(false);
       if (onUpdateField) {
-        onUpdateField('scrapExchange.enabled', false);
-        onUpdateField('scrapExchange.amount', 0);
+        onUpdateField({
+          'scrapExchange.enabled': false,
+          'scrapExchange.amount': 0,
+        });
       }
-      setShowExchange(false);
     } else {
+      setExchangeOpen(true);
       if (onUpdateField) {
         onUpdateField('scrapExchange.enabled', true);
       }
-      setShowExchange(true);
     }
   };
 
   const handleExchangeAmountChange = (val) => {
-    const num = parseFloat(val);
     if (onUpdateField) {
-      onUpdateField('scrapExchange.amount', isNaN(num) ? 0 : num);
-      if (!invoice?.scrapExchange?.enabled) {
-        onUpdateField('scrapExchange.enabled', true);
-      }
+      onUpdateField({
+        'scrapExchange.amount': val,
+        'scrapExchange.enabled': true,
+      });
     }
   };
 

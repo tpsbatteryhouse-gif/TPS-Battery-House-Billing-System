@@ -47,17 +47,25 @@ export default function InvoiceForm({
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
   const isInterstate = totals.isInterstate;
 
-  // Safe nested state updater
-  const updateField = (path, value) => {
+  // Safe nested state updater supporting single key-path or atomic multi-field updates
+  const updateField = (pathOrUpdates, value) => {
     setInvoice((prev) => {
       const copy = { ...prev };
-      const keys = path.split('.');
-      let current = copy;
-      for (let i = 0; i < keys.length - 1; i++) {
-        current[keys[i]] = { ...current[keys[i]] };
-        current = current[keys[i]];
+      const updates =
+        typeof pathOrUpdates === 'string'
+          ? { [pathOrUpdates]: value }
+          : (pathOrUpdates && typeof pathOrUpdates === 'object' ? pathOrUpdates : {});
+
+      for (const [path, val] of Object.entries(updates)) {
+        const keys = path.split('.');
+        let current = copy;
+        for (let i = 0; i < keys.length - 1; i++) {
+          const key = keys[i];
+          current[key] = current[key] && typeof current[key] === 'object' ? { ...current[key] } : {};
+          current = current[key];
+        }
+        current[keys[keys.length - 1]] = val;
       }
-      current[keys[keys.length - 1]] = value;
       return copy;
     });
   };
@@ -76,7 +84,7 @@ export default function InvoiceForm({
     setInvoice((prev) => {
       const gstin = (cust.gstin || '').trim();
       const isB2B = Boolean(gstin && gstin.length >= 10);
-      const newTxType = isB2B ? TRANSACTION_TYPES.B2B : TRANSACTION_TYPES.B2C;
+      const newTxType = isB2B ? TRANSACTION_TYPES.B2B : (prev.transactionType || TRANSACTION_TYPES.B2C);
       return {
         ...prev,
         transactionType: newTxType,
@@ -85,7 +93,7 @@ export default function InvoiceForm({
           name: cust.name || '',
           phone: cust.phone || '',
           address: cust.address || '',
-          shippingAddress: cust.shippingAddress || '',
+          shippingAddress: cust.shippingAddress || prev.customer?.shippingAddress || '',
           city: cust.city || 'Thrithala',
           district: cust.district || 'Palakkad',
           state: cust.state || 'Kerala',
@@ -158,14 +166,16 @@ export default function InvoiceForm({
     }));
   };
 
-  // Update line item field
+  // Update line item field safely
   const updateItem = (index, field, value) => {
     setInvoice((prev) => {
-      const items = [...prev.items];
-      items[index] = {
-        ...items[index],
-        [field]: value,
-      };
+      const items = [...(prev.items || [])];
+      if (items[index]) {
+        items[index] = {
+          ...items[index],
+          [field]: value,
+        };
+      }
       return { ...prev, items };
     });
   };
@@ -174,8 +184,9 @@ export default function InvoiceForm({
   const changeItemCategory = (index, newCategory) => {
     const catCfg = CATEGORY_CONFIG[newCategory] || CATEGORY_CONFIG[PRODUCT_CATEGORIES.BATTERY];
     setInvoice((prev) => {
-      const items = [...prev.items];
+      const items = [...(prev.items || [])];
       const cur = items[index];
+      if (!cur) return prev;
       items[index] = {
         ...cur,
         category: newCategory,
@@ -194,7 +205,7 @@ export default function InvoiceForm({
   const removeItem = (index) => {
     setInvoice((prev) => ({
       ...prev,
-      items: prev.items.filter((_, i) => i !== index),
+      items: (prev.items || []).filter((_, i) => i !== index),
     }));
     setValidationErrors([]);
     setItemErrors({});

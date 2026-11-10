@@ -257,7 +257,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
           ...invoice.scrapExchange,
           enabled: Boolean(invoice.scrapExchange?.enabled),
           amount: Math.max(0, Number(invoice.scrapExchange?.amount) || 0),
-          description: invoice.scrapExchange?.description || 'Old 150Ah Scrap Battery Buyback',
+          description: invoice.scrapExchange?.description !== undefined ? invoice.scrapExchange.description : 'Old 150Ah Scrap Battery Buyback',
         },
         additionalDiscount: Math.max(0, Number(invoice.additionalDiscount) || 0),
         netPayable: totals.netPayable,
@@ -757,13 +757,13 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                     const isB2B = Boolean(cust.gstin && cust.gstin.trim().length >= 10);
                     return {
                       ...prev,
-                      transactionType: isB2B ? TRANSACTION_TYPES.B2B : TRANSACTION_TYPES.B2C,
+                      transactionType: isB2B ? TRANSACTION_TYPES.B2B : (prev.transactionType || TRANSACTION_TYPES.B2C),
                       customer: {
                         ...prev.customer,
                         name: cust.name || '',
                         phone: cust.phone || '',
                         address: cust.address || '',
-                        shippingAddress: cust.shippingAddress || '',
+                        shippingAddress: cust.shippingAddress || prev.customer?.shippingAddress || '',
                         city: cust.city || 'Thrithala',
                         district: cust.district || 'Palakkad',
                         state: cust.state || 'Kerala',

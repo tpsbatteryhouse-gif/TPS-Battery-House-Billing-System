@@ -177,7 +177,7 @@ export default function InvoiceMetadataSection({
             <label className="relative inline-flex items-center cursor-pointer">
               <input
                 type="checkbox"
-                checked={invoice?.reverseCharge || false}
+                checked={invoice?.reverseCharge === true || invoice?.reverseCharge === 'Yes'}
                 onChange={(e) => onUpdateField('reverseCharge', e.target.checked)}
                 className="sr-only peer"
               />
