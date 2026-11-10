@@ -59,8 +59,6 @@ function BusinessSettingsContent({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  if (!isOpen) return null;
-
   // Change handlers
   const handleRootChange = (field, value) => {
     setFormData((prev) => ({ ...prev, [field]: value }));

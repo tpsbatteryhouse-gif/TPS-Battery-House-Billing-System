@@ -13,6 +13,7 @@ import {
   Package,
   Users,
   UserCheck,
+  Plus,
 } from 'lucide-react';
 import { MOCK_USER } from '../data/mockData';
 import { useAuth } from '../context/useAuth';
@@ -21,6 +22,7 @@ import { ROLE_CONFIG } from '../utils/permissions';
 export default function Header({
   activeView,
   setActiveView,
+  onNewInvoice,
   onOpenSettings,
   onOpenProfile,
   onSignOut,
@@ -98,7 +100,7 @@ export default function Header({
     <header className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 shadow-md no-print">
       <div className="max-w-[1700px] mx-auto px-3 sm:px-6 py-2.5 flex items-center justify-between gap-3">
         {/* Brand Left */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between w-full xl:w-auto gap-3">
           <button
             type="button"
             onClick={() => setActiveView('dashboard')}
@@ -121,6 +123,18 @@ export default function Header({
               </p>
             </div>
           </button>
+
+          {/* Mobile Quick + New Bill Action */}
+          {onNewInvoice && (
+            <button
+              type="button"
+              onClick={onNewInvoice}
+              className="xl:hidden bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-3 py-1.5 rounded-lg text-xs flex items-center gap-1 shadow-md shadow-amber-500/20 active:scale-95 transition-all"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[3]" />
+              <span>New Bill</span>
+            </button>
+          )}
         </div>
 
         {/* Center View Navigation Tabs */}
@@ -210,8 +224,20 @@ export default function Header({
           )}
         </nav>
 
-        {/* Right Section: Date, Live Digital Clock & User Profile */}
+        {/* Right Section: + New Bill, Date, Live Digital Clock & User Profile */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Desktop Primary Quick Action: + New Bill */}
+          {onNewInvoice && (
+            <button
+              type="button"
+              onClick={onNewInvoice}
+              className="hidden xl:flex bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-3.5 py-1.5 rounded-xl text-xs sm:text-sm items-center gap-1.5 shadow-lg shadow-amber-500/20 active:scale-95 transition-all cursor-pointer whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4 stroke-[3]" />
+              <span>New Bill</span>
+            </button>
+          )}
+
           {/* Live Date & Digital Clock (hidden on tiny screens) */}
           <div className="hidden md:flex flex-col items-end text-right pr-2 border-r border-slate-800">
             <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-amber-400">

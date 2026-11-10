@@ -181,6 +181,124 @@ export function validateInvoiceFinancials(invoice) {
 }
 
 /**
+ * Authoritative Pre-Print and Pre-Save Invoice Form Validator.
+ * Validates that an invoice contains real, fully-configured line items
+ * and meets statutory GST, quantity, pricing, and naming rules before printing or saving.
+ *
+ * @param {Object} invoice
+ * @returns {{
+ *   isValid: boolean,
+ *   errors: string[],
+ *   errorSummary: string | null,
+ *   itemErrors: Object<number, string[]>,
+ *   hasEmptyItems: boolean
+ * }}
+ */
+export function validateInvoiceBeforePrint(invoice) {
+  const errors = [];
+  const itemErrors = {};
+
+  if (!invoice || typeof invoice !== 'object') {
+    const msg = 'Please add at least one product or service before printing this invoice.';
+    return {
+      isValid: false,
+      errors: [msg],
+      errorSummary: 'Your bill is empty. Please add a product or service before printing.',
+      itemErrors: {},
+      hasEmptyItems: true,
+    };
+  }
+
+  const items = Array.isArray(invoice.items) ? invoice.items : [];
+
+  // Rule 1 — At least one item
+  if (items.length === 0) {
+    const msg = 'Please add at least one product or service before printing this invoice.';
+    return {
+      isValid: false,
+      errors: [msg],
+      errorSummary: 'Your bill is empty. Please add a product or service before printing.',
+      itemErrors: {},
+      hasEmptyItems: true,
+    };
+  }
+
+  // Iterate over each item
+  items.forEach((item, index) => {
+    const currentItemErrors = [];
+    const itemNum = index + 1;
+    const rawName = item?.name ?? item?.description ?? '';
+    const cleanName = typeof rawName === 'string' ? rawName.trim() : '';
+
+    // Rule 2 & 3 — Product description / No blank placeholder items
+    if (!cleanName || cleanName.toLowerCase() === 'unnamed item' || cleanName.toLowerCase() === 'unnamed') {
+      currentItemErrors.push(`Item ${itemNum}: Please enter the product or service name.`);
+    }
+
+    // Rule 4 — Quantity must be a valid positive number (> 0)
+    const rawQty = item?.qty !== undefined ? item.qty : item?.quantity;
+    if (rawQty === undefined || rawQty === null || (typeof rawQty === 'string' && rawQty.trim() === '')) {
+      currentItemErrors.push(`Item ${itemNum} ("${cleanName || 'Unnamed'}"): Quantity is required.`);
+    } else {
+      const qtyNum = Number(rawQty);
+      if (Number.isNaN(qtyNum) || !Number.isFinite(qtyNum) || qtyNum <= 0) {
+        currentItemErrors.push(`Item ${itemNum} ("${cleanName || 'Unnamed'}"): Please enter a quantity greater than zero.`);
+      }
+    }
+
+    // Rule 5 — Price and financial values
+    const rawRate = item?.rate !== undefined ? item.rate : (item?.unitPrice !== undefined ? item.unitPrice : item?.price);
+    if (rawRate === undefined || rawRate === null || (typeof rawRate === 'string' && rawRate.trim() === '')) {
+      currentItemErrors.push(`Item ${itemNum} ("${cleanName || 'Unnamed'}"): Please enter a valid price.`);
+    } else {
+      const rateNum = Number(rawRate);
+      if (Number.isNaN(rateNum) || !Number.isFinite(rateNum) || rateNum < 0) {
+        currentItemErrors.push(`Item ${itemNum} ("${cleanName || 'Unnamed'}"): Please enter a valid price.`);
+      }
+      // Note on Rule 5: Legitimate zero-value service or complimentary inspection (rateNum === 0) is allowed!
+    }
+
+    // Rule 7 — GST Validation
+    if (item?.gstRate !== undefined && item?.gstRate !== null && item?.gstRate !== '') {
+      const gstNum = Number(item.gstRate);
+      if (Number.isNaN(gstNum) || !FINANCIAL_BOUNDS.ALLOWED_GST_RATES.includes(gstNum)) {
+        currentItemErrors.push(
+          `Item ${itemNum} ("${cleanName || 'Unnamed'}"): Invalid GST rate (${item.gstRate}%). Allowed rates are 0%, 5%, 12%, 18%, 28%.`
+        );
+      }
+    }
+
+    if (currentItemErrors.length > 0) {
+      itemErrors[index] = currentItemErrors;
+      errors.push(...currentItemErrors);
+    }
+  });
+
+  // Deductions validation
+  if (invoice.additionalDiscount !== undefined && invoice.additionalDiscount !== null && invoice.additionalDiscount !== '') {
+    const addDisc = Number(invoice.additionalDiscount);
+    if (Number.isNaN(addDisc) || !Number.isFinite(addDisc) || addDisc < 0) {
+      errors.push('Special invoice discount must be a valid non-negative number.');
+    }
+  }
+
+  if (invoice.scrapExchange && invoice.scrapExchange.enabled) {
+    const scrapAmt = Number(invoice.scrapExchange.amount);
+    if (Number.isNaN(scrapAmt) || !Number.isFinite(scrapAmt) || scrapAmt < 0) {
+      errors.push('Old battery scrap buyback amount must be a valid non-negative number.');
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    errorSummary: errors.length > 0 ? (items.length === 0 ? 'Your bill is empty. Please add a product or service before printing.' : errors[0]) : null,
+    itemErrors,
+    hasEmptyItems: items.length === 0,
+  };
+}
+
+/**
  * Calculates line-level and invoice-level GST values.
  * Handles both Tax Inclusive (MRP reverse calculation) and Tax Exclusive pricing.
  */
@@ -364,4 +482,131 @@ export function buildUpiUri(upiId, businessName, amount, invoiceNumber) {
   const cleanAmount = roundToTwoDecimals(amount).toFixed(2);
   const note = encodeURIComponent(`Bill ${invoiceNumber || 'TPS'}`);
   return `upi://pay?pa=${cleanUpi}&pn=${cleanName}&am=${cleanAmount}&cu=INR&tn=${note}`;
+}
+
+export const FINANCIAL_VALIDATION_STATUS = {
+  VALID_NONZERO: 'VALID_NONZERO',
+  VALID_ZERO: 'VALID_ZERO',
+  MISSING_FINAL_AMOUNT: 'MISSING_FINAL_AMOUNT',
+  INVALID_FINANCIAL_INPUT: 'INVALID_FINANCIAL_INPUT',
+  CALCULATION_MISMATCH: 'CALCULATION_MISMATCH',
+};
+
+/**
+ * Authoritative financial consistency guard for invoice issuance, preview, and persistence.
+ * Validates that mathematical totals, deductions, tax slabs, round-off, and net payable
+ * are coherent and consistent with the single source of truth engine.
+ *
+ * Returns {
+ *   isValid: boolean,
+ *   status: FINANCIAL_VALIDATION_STATUS,
+ *   authoritativeNetPayable: number | null,
+ *   totals: object | null,
+ *   error: string | null
+ * }
+ */
+export function verifyInvoiceFinancialConsistency(invoice, businessStateCode = '32') {
+  if (!invoice || typeof invoice !== 'object') {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.INVALID_FINANCIAL_INPUT,
+      authoritativeNetPayable: null,
+      totals: null,
+      error: 'Invoice payload must be a non-null object.',
+    };
+  }
+
+  // 1. Run low-level financial input validation (bounds, types, GST slabs)
+  try {
+    validateInvoiceFinancials(invoice);
+  } catch (err) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.INVALID_FINANCIAL_INPUT,
+      authoritativeNetPayable: null,
+      totals: null,
+      error: err.message,
+    };
+  }
+
+  // 2. Authoritative calculation using centralized engine
+  let totals;
+  try {
+    totals = calculateInvoiceTotals(invoice, businessStateCode);
+  } catch (err) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.INVALID_FINANCIAL_INPUT,
+      authoritativeNetPayable: null,
+      totals: null,
+      error: `Failed to calculate invoice totals: ${err.message}`,
+    };
+  }
+
+  const authoritativeNetPayable = totals.netPayable;
+
+  if (typeof authoritativeNetPayable !== 'number' || isNaN(authoritativeNetPayable) || !isFinite(authoritativeNetPayable)) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.MISSING_FINAL_AMOUNT,
+      authoritativeNetPayable: null,
+      totals,
+      error: 'Authoritative net payable calculation resulted in an invalid number.',
+    };
+  }
+
+  // 3. Mathematical validation of totals
+  const expectedTax = roundToTwoDecimals(totals.totalCgst + totals.totalSgst + totals.totalIgst);
+  if (Math.abs(expectedTax - totals.totalTax) > 0.01) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.CALCULATION_MISMATCH,
+      authoritativeNetPayable,
+      totals,
+      error: `Tax totals mismatch: component taxes (${expectedTax}) do not match total tax (${totals.totalTax}).`,
+    };
+  }
+
+  const grossLessDeductions = Math.max(0, totals.totalGross - totals.scrapDiscount - totals.extraDiscount);
+  if (Math.abs(grossLessDeductions - totals.subtotalAfterDeductions) > 0.01) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.CALCULATION_MISMATCH,
+      authoritativeNetPayable,
+      totals,
+      error: 'Deduction subtraction mismatch in subtotal calculation.',
+    };
+  }
+
+  const expectedNet = roundToTwoDecimals(Math.max(0, totals.subtotalAfterDeductions + totals.roundOff));
+  if (Math.abs(expectedNet - authoritativeNetPayable) > 0.01) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.CALCULATION_MISMATCH,
+      authoritativeNetPayable,
+      totals,
+      error: `Final payable (${authoritativeNetPayable}) does not match subtotal after deductions and round-off (${expectedNet}).`,
+    };
+  }
+
+  // 4. Distinguish Valid Zero vs Valid Nonzero
+  const isZeroValue = authoritativeNetPayable === 0;
+
+  if (totals.totalGross > (totals.scrapDiscount + totals.extraDiscount) && isZeroValue) {
+    return {
+      isValid: false,
+      status: FINANCIAL_VALIDATION_STATUS.CALCULATION_MISMATCH,
+      authoritativeNetPayable,
+      totals,
+      error: 'Corrupted calculation: billable items exceed deductions but net payable calculated as zero.',
+    };
+  }
+
+  return {
+    isValid: true,
+    status: isZeroValue ? FINANCIAL_VALIDATION_STATUS.VALID_ZERO : FINANCIAL_VALIDATION_STATUS.VALID_NONZERO,
+    authoritativeNetPayable,
+    totals,
+    error: null,
+  };
 }

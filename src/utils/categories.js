@@ -335,9 +335,11 @@ export function normalizeInvoiceItem(item) {
     : (CATEGORY_CONFIG[category]?.defaultUnit || 'Nos');
 
   const discount = Math.max(0, Number(item.discount ?? item.discountAmount ?? item.disAmt) || 0);
+  const id = item.id || ('item-' + Math.random().toString(36).slice(2, 10));
 
   return {
     ...item,
+    id,
     name,
     category,
     rate,

@@ -26,6 +26,163 @@ body {
   background: #475569;
 }
 
+/* -------------------------------------------------------------
+ * TPS BATTERY HOUSE — SIMPLIFIED BILLING DASHBOARD DESIGN TOKENS
+ * Matching Simple New Bill – New Bill.html reference specifications
+ * ----------------------------------------------------------- */
+:root {
+  --color-canvas-bg: #0F1216;
+  --color-card-bg: #181C22;
+  --color-item-card-bg: #12161B;
+  --color-card-border: #2A3039;
+  --color-fld-border: #7A7568;
+  --color-text-primary: #F2EFE9;
+  --color-text-muted: #A8A294;
+  --color-accent-amber: #F2A516;
+  --color-hero-amount: #FFC857;
+  --color-active-bg: #3A2D0C;
+  --color-highlight-bg: #2A2210;
+  --color-highlight-border: #5C4513;
+}
+
+.inv-fld {
+  width: 100%;
+  height: 52px;
+  padding: 0 16px;
+  font-size: 16px;
+  color: #F2EFE9;
+  background-color: #0F1216;
+  border: 1.5px solid #7A7568;
+  border-radius: 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+@media (min-width: 640px) {
+  .inv-fld {
+    font-size: 18px;
+  }
+}
+.inv-fld::placeholder {
+  color: #9A9486;
+}
+.inv-fld:focus {
+  outline: none;
+  border-color: #FFD479;
+  box-shadow: 0 0 0 2px rgba(255, 212, 121, 0.25);
+}
+
+.inv-pill {
+  min-height: 52px;
+  padding: 0 22px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #F2EFE9;
+  background-color: #20262E;
+  border: 1.5px solid #7A7568;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+@media (min-width: 640px) {
+  .inv-pill {
+    font-size: 18px;
+  }
+}
+.inv-pill:hover {
+  background-color: #2A333E;
+}
+.inv-pill.on {
+  background-color: #3A2D0C;
+  border: 3px solid #F2A516;
+  padding: 0 20px;
+}
+
+.inv-choice {
+  flex: 1 1 240px;
+  text-align: left;
+  padding: 18px 20px;
+  color: #F2EFE9;
+  background-color: #20262E;
+  border: 1.5px solid #7A7568;
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.inv-choice:hover {
+  background-color: #2A333E;
+}
+.inv-choice.on {
+  background-color: #3A2D0C;
+  border: 3px solid #F2A516;
+  padding: 16px 18px;
+}
+
+.inv-chip {
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #F2EFE9;
+  background-color: #20262E;
+  border: 1.5px solid #7A7568;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+@media (min-width: 640px) {
+  .inv-chip {
+    font-size: 16px;
+  }
+}
+.inv-chip:hover {
+  background-color: #3A2D0C;
+  border-color: #F2A516;
+}
+
+.inv-step {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 18px;
+  color: #1F1A14;
+  background-color: #F2A516;
+  flex: none;
+}
+
+.inv-link {
+  background: none;
+  border: none;
+  padding: 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #F2EFE9;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+@media (min-width: 640px) {
+  .inv-link {
+    font-size: 17px;
+  }
+}
+.inv-link:hover {
+  color: #FFC857;
+}
+
 /* Print Styles */
 @media print {
   @page {
@@ -33,11 +190,14 @@ body {
     margin: 8mm 8mm 8mm 8mm;
   }
   
-  html, body {
+  html, body, #root, #root > div, .min-h-screen {
     background: #ffffff !important;
+    background-color: #ffffff !important;
     color: #000000 !important;
     margin: 0 !important;
     padding: 0 !important;
+    min-height: auto !important;
+    box-shadow: none !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }

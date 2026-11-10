@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import QRCode from 'qrcode';
-import { calculateInvoiceTotals, buildUpiUri } from './gstCalculations.js';
+import { calculateInvoiceTotals, buildUpiUri, verifyInvoiceFinancialConsistency, validateInvoiceBeforePrint } from './gstCalculations.js';
 import { formatNumber } from './numberToWords.js';
 import {
   formatItemSpecifications,
@@ -18,11 +18,19 @@ import {
  * Output size is typically 50 KB - 90 KB.
  */
 export async function generateVectorPdf(invoice, businessInput, invoiceCopy = 'Original for Buyer') {
+  // Pre-print / pre-generation validation
+  const validation = validateInvoiceBeforePrint(invoice);
+  if (!validation.isValid) {
+    throw new Error(`Cannot generate PDF for invalid invoice: ${validation.errorSummary || 'please add at least one product or service.'}`);
+  }
+
   const business = invoice?.businessSnapshot || businessInput;
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
-  const payableAmount = typeof invoice?.netPayable === 'number' && invoice.netPayable >= 0
-    ? invoice.netPayable
-    : totals.netPayable;
+  const consistency = verifyInvoiceFinancialConsistency(invoice, business?.stateCode || '32');
+  if (!consistency.isValid) {
+    throw new Error(`Cannot generate PDF for invalid invoice: ${consistency.error}`);
+  }
+  const payableAmount = totals.netPayable;
   const upiUri = buildUpiUri(
     business?.upiId,
     business?.businessName,
@@ -774,4 +782,117 @@ export async function downloadInvoicePdf(
 
   pdfDoc.save(fileName);
   return fileName;
+}
+
+/**
+ * Dedicated vector PDF print function.
+ * Generates the authentic A4 vector GST invoice using jsPDF, converts it into a Blob URL,
+ * and invokes the browser print dialog targeting the pure vector document.
+ * Includes graceful fallback to direct window.print() if browser sandbox blocks iframe printing.
+ */
+export async function printInvoicePdf(
+  invoice,
+  business,
+  invoiceCopy = 'Original for Buyer'
+) {
+  // 1. Validate invoice before printing
+  const validation = validateInvoiceBeforePrint(invoice);
+  if (!validation.isValid) {
+    throw new Error(`Cannot print invoice with invalid financial data: ${validation.errorSummary || 'please add at least one product or service.'}`);
+  }
+
+  // 2. Verify consistency using single source of truth
+  const consistency = verifyInvoiceFinancialConsistency(
+    invoice,
+    business?.stateCode || '32'
+  );
+  if (!consistency.isValid) {
+    throw new Error(`Cannot print invoice with invalid financial data: ${consistency.error}`);
+  }
+
+  // 2. Generate authoritative vector PDF
+  const pdfDoc = await generateVectorPdf(invoice, business, invoiceCopy);
+  const blob = pdfDoc.output('blob');
+  if (!blob || blob.size === 0) {
+    throw new Error('Generated invoice PDF is empty.');
+  }
+
+  // 3. In non-browser / test environments, return the blob directly
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return { success: true, blob, size: blob.size, method: 'mock-environment' };
+  }
+
+  const blobUrl = URL.createObjectURL(blob);
+
+  return new Promise((resolve) => {
+    let completed = false;
+    const cleanup = () => {
+      if (completed) return;
+      completed = true;
+      setTimeout(() => {
+        try {
+          const oldFrame = document.getElementById('tps-invoice-print-frame');
+          if (oldFrame && oldFrame.parentNode) {
+            oldFrame.parentNode.removeChild(oldFrame);
+          }
+          URL.revokeObjectURL(blobUrl);
+        } catch {
+          // ignore cleanup errors
+        }
+      }, 60000); // 60s retention for print spooler
+    };
+
+    try {
+      // Remove any prior existing print iframe
+      const existingFrame = document.getElementById('tps-invoice-print-frame');
+      if (existingFrame && existingFrame.parentNode) {
+        existingFrame.parentNode.removeChild(existingFrame);
+      }
+
+      const iframe = document.createElement('iframe');
+      iframe.id = 'tps-invoice-print-frame';
+      iframe.setAttribute('title', 'GST Invoice Print Document');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      iframe.style.visibility = 'hidden';
+      iframe.src = blobUrl;
+
+      iframe.onload = () => {
+        setTimeout(() => {
+          try {
+            if (iframe.contentWindow) {
+              iframe.contentWindow.focus();
+              iframe.contentWindow.print();
+              cleanup();
+              resolve({ success: true, method: 'iframe-pdf' });
+              return;
+            }
+          } catch (err) {
+            console.warn('Iframe PDF printing blocked, falling back to window.print():', err);
+          }
+          // Fallback to DOM print if iframe contentWindow is blocked
+          cleanup();
+          window.print();
+          resolve({ success: true, method: 'window-print-fallback' });
+        }, 350);
+      };
+
+      iframe.onerror = () => {
+        cleanup();
+        window.print();
+        resolve({ success: true, method: 'window-print-fallback' });
+      };
+
+      document.body.appendChild(iframe);
+    } catch (err) {
+      cleanup();
+      console.warn('Print initiation error, falling back to direct window.print:', err);
+      window.print();
+      resolve({ success: true, method: 'window-print-fallback' });
+    }
+  });
 }
