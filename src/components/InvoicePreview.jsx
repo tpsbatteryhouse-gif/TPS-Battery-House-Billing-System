@@ -1,6 +1,6 @@
 import React from 'react';
 import { formatNumber } from '../utils/numberToWords.js';
-import { calculateInvoiceTotals, buildUpiUri } from '../utils/gstCalculations.js';
+import { calculateInvoiceTotals, buildUpiUri, verifyInvoiceFinancialConsistency } from '../utils/gstCalculations.js';
 import {
   formatItemSpecifications,
   inferTransactionType,
@@ -24,10 +24,12 @@ import UpiQrCode from './UpiQrCode';
 export default function InvoicePreview({ invoice, business: propBusiness, invoiceCopy = 'Original for Buyer' }) {
   const business = invoice?.businessSnapshot || propBusiness;
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
-  const payableAmount = typeof invoice?.netPayable === 'number' && invoice.netPayable >= 0
-    ? invoice.netPayable
-    : totals.netPayable;
-  const upiUri = buildUpiUri(business?.upiId, business?.businessName, payableAmount, invoice.invoiceNumber);
+  // Authoritative single source of truth:
+  // Derived directly from calculateInvoiceTotals to guarantee 100% agreement between
+  // line items, statutory HSN breakdown, deductions, round-off, amount in words, and printed bill amount.
+  const payableAmount = totals.netPayable;
+  const upiUri = buildUpiUri(business?.upiId, business?.businessName, payableAmount, invoice?.invoiceNumber);
+  const consistency = verifyInvoiceFinancialConsistency(invoice, business?.stateCode || '32');
 
   // Derive business PAN from GSTIN (chars 3 to 12)
   const businessPan = (business?.gstin || '').length >= 12 ? business.gstin.slice(2, 12) : (business?.pan || '—');
@@ -71,6 +73,13 @@ export default function InvoicePreview({ invoice, business: propBusiness, invoic
       className="bg-white text-black mx-auto w-full max-w-[210mm] min-h-[297mm] print:min-h-[297mm] p-[8mm] print:p-0 text-[10.5px] leading-tight font-sans shadow-lg print:shadow-none print:border-none print:max-w-none print:w-full flex flex-col justify-between"
       style={{ fontFamily: 'Inter, Arial, Helvetica, sans-serif' }}
     >
+      {/* Financial Consistency Alert Banner if invalid */}
+      {!consistency.isValid && (
+        <div className="bg-rose-900 border-2 border-rose-500 text-rose-100 p-2 text-xs font-bold mb-2 rounded no-print">
+          ⚠️ Financial Validation Warning: {consistency.error}
+        </div>
+      )}
+
       {/* Outer Border wrapping traditional accounting invoice */}
       <div className="border-2 border-black flex-1 flex flex-col justify-between">
         {/* ======================================================== */}

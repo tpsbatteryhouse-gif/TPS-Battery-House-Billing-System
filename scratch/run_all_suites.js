@@ -29,6 +29,15 @@ const suites = [
   'scratch/test_phase_6b_vulnerabilities.mjs',
   'scratch/test_phase_6b1_targeted_verification.mjs',
   'scratch/test_dashboard_financial_metrics.mjs',
+  'scratch/test_invoice_screen_integration.mjs',
+  'scratch/test_navigation_wiring.mjs',
+  'scratch/test_financial_total_zero_repair.mjs',
+  'scratch/test_invoice_print_workflow.mjs',
+  'scratch/test_invoice_layout_responsive.mjs',
+  'scratch/test_invoice_redesign.mjs',
+  'scratch/test_invoice_empty_initialization_and_print_validation.mjs',
+  'scratch/test_firestore_invoice_save_permission.mjs',
+  'scratch/test_invoice_form_state_integrity.mjs',
 ];
 
 function checkEmulatorRunning() {

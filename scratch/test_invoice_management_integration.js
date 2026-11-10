@@ -231,6 +231,8 @@ async function runTestSuite() {
     },
   });
 
+  await testEnv.clearFirestore();
+
   try {
     // Seed fixtures
     await testEnv.withSecurityRulesDisabled(async (context) => {
