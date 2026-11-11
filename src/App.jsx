@@ -22,6 +22,12 @@ import {
 } from './utils/categories';
 import { calculateInvoiceTotals, validateInvoiceBeforePrint } from './utils/gstCalculations';
 import { formatINR } from './utils/numberToWords';
+import {
+  hasMeaningfulInvoiceData,
+  isIssuedInvoice,
+  createDraftSnapshot,
+  isDraftModified,
+} from './utils/draftState';
 import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './context/useAuth';
 import { DEFAULT_BUSINESS_ID } from './context/authConstants';
@@ -32,9 +38,10 @@ import { useBusinessSettings } from './hooks/useBusinessSettings';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
 function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyncStatus }) {
-  const { permissions, signOutUser } = useAuth();
+  const { user, member, permissions, signOutUser } = useAuth();
   // Navigation View: 'dashboard' | 'invoices' | 'editor'
   const [activeView, setActiveView] = useState('dashboard');
+  const lastSavedSnapshotRef = useRef(null);
 
   // Centralized Invoices Dataset with Firestore Realtime Sync, Atomic Sequence Allocation & Offline Cache
   const {
@@ -165,6 +172,11 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
       items: (inv.items || []).map((item) => normalizeInvoiceItem(item)),
     };
     setInvoice(openedInvoice);
+    if (inv.paymentStatus === 'Draft') {
+      lastSavedSnapshotRef.current = createDraftSnapshot(openedInvoice);
+    } else {
+      lastSavedSnapshotRef.current = null;
+    }
     setEditorMode('edit');
     setActiveView('editor');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -208,6 +220,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     const freshInvoice = createEmptyInvoice(newInvNo, today);
 
     setInvoice(freshInvoice);
+    lastSavedSnapshotRef.current = null;
     setActiveView('editor');
     setEditorMode('edit');
     if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
@@ -228,6 +241,30 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
 
   // Dedicated Draft Persistence Handler (Save for later)
   const handleSaveDraftInEditor = async () => {
+    // Case E: Previously issued invoice cannot be converted back to Draft
+    if (isIssuedInvoice(invoice)) {
+      showToast(
+        `Cannot save as draft: This bill has already been issued as ${invoice.paymentStatus}.`,
+        'error'
+      );
+      return false;
+    }
+
+    // Case D: New invoice without any meaningful data
+    if (!hasMeaningfulInvoiceData(invoice)) {
+      showToast(
+        'Please enter customer details or add at least one product or service before saving as draft.',
+        'info'
+      );
+      return false;
+    }
+
+    // Case C: Existing draft without modifications (unchanged)
+    if (lastSavedSnapshotRef.current && !isDraftModified(invoice, lastSavedSnapshotRef.current)) {
+      showToast('No changes to save. Your draft is already up to date.', 'info');
+      return invoice;
+    }
+
     try {
       const stableId = invoice.id || ('inv_draft_' + Date.now());
       const txType = inferTransactionType(invoice);
@@ -256,8 +293,9 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
 
       const saved = await saveDraft(draftToSave);
 
-      // Keep active editor state in sync with saved draft
+      // Keep active editor state in sync with saved draft and record clean snapshot
       setInvoice(saved);
+      lastSavedSnapshotRef.current = createDraftSnapshot(saved);
 
       // Update invoices array (match by stable ID first, then invoiceNumber)
       setInvoices((prev) => {
@@ -277,12 +315,28 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
       setTimeout(() => setIsSavedFeedback(false), 2500);
       return saved;
     } catch (err) {
-      console.error('Failed to save draft in editor:', {
+      console.error('[DraftService] Draft save failure diagnostics:', {
         code: err?.code,
         message: err?.message,
         operation: 'handleSaveDraftInEditor',
+        documentId: invoice?.id,
+        path: `businesses/${DEFAULT_BUSINESS_ID}/invoices/${invoice?.id || 'new'}`,
+        authenticatedUid: user?.uid || 'unauthenticated',
+        authenticatedEmail: user?.email || 'unknown',
+        businessId: DEFAULT_BUSINESS_ID,
+        membershipRole: member?.role || 'unknown',
+        membershipStatus: member?.status || 'unknown',
       });
-      showToast(`Error saving draft: ${err?.message || 'Failed to save draft.'}`, 'error');
+
+      const isPermissionDenied =
+        err?.code === 'permission-denied' ||
+        (err?.message && (err.message.includes('permission') || err.message.includes('PERMISSION_DENIED')));
+
+      const userDisplayMessage = isPermissionDenied
+        ? 'Unable to save this draft. Please check your account access or contact the administrator.'
+        : `Error saving draft: ${err?.message || 'Failed to save draft.'}`;
+
+      showToast(userDisplayMessage, 'error');
       return false;
     }
   };
@@ -330,6 +384,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
 
       // Keep active editor state exactly in sync with saved record
       setInvoice(saved);
+      lastSavedSnapshotRef.current = null;
 
       // Update invoices array (match by stable ID first, then invoiceNumber)
       setInvoices((prev) => {

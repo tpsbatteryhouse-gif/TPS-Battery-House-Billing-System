@@ -457,8 +457,21 @@ export async function saveInvoiceDraft(
     isExistingDoc
   );
 
-  await setDoc(invoiceDocRef, sanitized, { merge: true });
-  return sanitized;
+  try {
+    await setDoc(invoiceDocRef, sanitized, { merge: true });
+    return sanitized;
+  } catch (writeErr) {
+    console.error('[InvoiceService] Failed to persist draft document:', {
+      errorCode: writeErr?.code,
+      errorMessage: writeErr?.message,
+      operation: isExistingDoc ? 'updateDraft' : 'createDraft',
+      documentId: invoiceId,
+      path: `businesses/${businessId}/invoices/${invoiceId}`,
+      userId: user?.uid || null,
+      userRole: user?.role || null,
+    });
+    throw writeErr;
+  }
 }
 
 /**
@@ -558,8 +571,10 @@ export async function createInvoiceWithCounter(
         const isExistingDoc = existingInvoiceSnap.exists();
         const existingCreatedAt = isExistingDoc ? existingInvoiceSnap.data()?.createdAt : null;
         const existingCreatedBy = isExistingDoc ? existingInvoiceSnap.data()?.createdBy : null;
+        const existingBusinessSnapshot = isExistingDoc ? existingInvoiceSnap.data()?.businessSnapshot : null;
 
         const snapshot = invoiceData.businessSnapshot ||
+          existingBusinessSnapshot ||
           (options?.business ? createBusinessSnapshot(options.business) : createBusinessSnapshot(DEFAULT_BUSINESS_SETTINGS));
 
         // Sanitize payload strictly according to firestore.rules

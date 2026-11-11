@@ -40,6 +40,7 @@ const suites = [
   'scratch/test_invoice_form_state_integrity.mjs',
   'scratch/test_invoice_line_item_display.mjs',
   'scratch/test_save_for_later_workflow.mjs',
+  'scratch/test_admin_draft_save_permissions.mjs',
 ];
 
 function checkEmulatorRunning() {

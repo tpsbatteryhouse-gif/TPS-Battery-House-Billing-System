@@ -538,6 +538,38 @@ service cloud.firestore {
              existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoice_numbers/$(getReservationDocId(request.resource.data.invoiceNumber)));
     }
 
+    // Invoice Update Permission & State Transition Evaluator
+    // Consolidated to avoid CEL AST expression limit (1000 expressions)
+    function canUpdateInvoice(businessId, invoiceId) {
+      let role = getMemberDoc(businessId).data.role;
+      return resource.data.paymentStatus == 'Draft'
+        ? (
+            (role in ['admin', 'manager'] || (role == 'cashier' && ('createdBy' in resource.data) && resource.data.createdBy == request.auth.uid)) &&
+            (
+              request.resource.data.paymentStatus == 'Draft' ||
+              (request.resource.data.paymentStatus in ['Pending', 'Paid'] && isValidSequentialIssuance(businessId, invoiceId))
+            )
+          )
+        : (
+            request.resource.data.paymentStatus != 'Draft' &&
+            role in ['admin', 'manager'] &&
+            (
+              role == 'admin' ||
+              (
+                !(resource.data.paymentStatus in ['Paid', 'Cancelled']) &&
+                (
+                  resource.data.paymentStatus != 'Pending' ||
+                  !(request.resource.data.paymentStatus in ['Paid', 'Cancelled']) ||
+                  (
+                    request.resource.data.netPayable == resource.data.netPayable &&
+                    request.resource.data.items == resource.data.items
+                  )
+                )
+              )
+            )
+          );
+    }
+
     // ===============================================================
     // Section 3: Scoped Security Rules: /businesses/{businessId}
     // ===============================================================
@@ -651,56 +683,7 @@ service cloud.firestore {
         allow update: if isActiveMember(businessId) &&
                          isValidInvoice(request.resource.data, invoiceId) &&
                          areImmutableInvoiceFieldsUnchanged() &&
-                         (
-                           // Case 1: Draft Invoices (Updating existing Draft or Issuing Draft)
-                           (
-                             resource.data.paymentStatus == 'Draft' &&
-                             (
-                               isAdmin(businessId) ||
-                               isManager(businessId) ||
-                               (
-                                 isCashier(businessId) &&
-                                 ('createdBy' in resource.data) &&
-                                 resource.data.createdBy == request.auth.uid
-                               )
-                             ) &&
-                             (
-                               // 1a. Keeping as Draft: No counter increment or reservation required
-                               request.resource.data.paymentStatus == 'Draft' ||
-
-                               // 1b. Issuing Draft: Transitioning to 'Pending' or 'Paid'
-                               // Must atomically allocate sequential number and uniqueness reservation
-                               (
-                                 request.resource.data.paymentStatus in ['Pending', 'Paid'] &&
-                                 isValidSequentialIssuance(businessId, invoiceId)
-                               )
-                             )
-                           ) ||
-
-                           // Case 2: Already-Issued Invoices (Pending, Paid, Cancelled, Overdue)
-                           // Cashiers are STRICTLY DENIED from modifying issued invoices.
-                           // Issued invoices can NEVER be demoted back to Draft.
-                           (
-                             resource.data.paymentStatus != 'Draft' &&
-                             request.resource.data.paymentStatus != 'Draft' &&
-                             (isAdmin(businessId) || isManager(businessId)) &&
-                             (
-                               isAdmin(businessId) ||
-                               (
-                                 // Manager restrictions on already-issued invoices:
-                                 !(resource.data.paymentStatus in ['Paid', 'Cancelled']) &&
-                                 (
-                                   resource.data.paymentStatus != 'Pending' ||
-                                   !(request.resource.data.paymentStatus in ['Paid', 'Cancelled']) ||
-                                   (
-                                     request.resource.data.netPayable == resource.data.netPayable &&
-                                     request.resource.data.items == resource.data.items
-                                   )
-                                 )
-                               )
-                             )
-                           )
-                         );
+                         canUpdateInvoice(businessId, invoiceId);
 
         // Delete Permissions:
         // Only active administrators can permanently delete invoice records.
