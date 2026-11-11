@@ -25,6 +25,7 @@ export default function InvoiceForm({
   customers = [],
   business,
   onSave,
+  onSaveDraft,
   onReset,
   onLoadSample,
   onBackToDashboard,
@@ -240,14 +241,19 @@ export default function InvoiceForm({
 
   // Save as Draft
   const handleSaveDraft = async () => {
-    if (!onSave) return false;
     if (!invoice?.items || invoice.items.length === 0) {
       setValidationErrors(['Please add at least one product or service before saving as draft.']);
       return false;
     }
     setIsSaving(true);
     try {
-      return await onSave(INVOICE_STATUSES.DRAFT);
+      if (typeof onSaveDraft === 'function') {
+        return await onSaveDraft();
+      }
+      if (typeof onSave === 'function') {
+        return await onSave(INVOICE_STATUSES.DRAFT);
+      }
+      return false;
     } finally {
       setIsSaving(false);
     }

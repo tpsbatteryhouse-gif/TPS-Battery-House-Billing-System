@@ -259,7 +259,10 @@ service cloud.firestore {
     // Invoice Immutable Fields Validator
     function areImmutableInvoiceFieldsUnchanged() {
       return request.resource.data.id == resource.data.id &&
-        request.resource.data.invoiceNumber == resource.data.invoiceNumber &&
+        (
+          request.resource.data.invoiceNumber == resource.data.invoiceNumber ||
+          (resource.data.paymentStatus == 'Draft' && request.resource.data.paymentStatus in ['Pending', 'Paid'])
+        ) &&
         (!('financialYear' in resource.data) || request.resource.data.financialYear == resource.data.financialYear) &&
         (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
         (!('createdBy' in resource.data) || request.resource.data.createdBy == resource.data.createdBy) &&
@@ -516,6 +519,25 @@ service cloud.firestore {
         getReservationDocId(data.invoiceNumber) == reservationId;
     }
 
+    // Validate atomic sequential counter increment and uniqueness reservation for invoice issuance
+    function isValidSequentialIssuance(businessId, invoiceId) {
+      return ('financialYear' in request.resource.data &&
+              isValidFinancialYearForDate(request.resource.data.invoiceDate, request.resource.data.financialYear) &&
+              exists(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear))) &&
+             (
+               !exists(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status) ||
+               get(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status).data.status != 'in_progress'
+             ) &&
+             (
+               existsAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)) &&
+               ('lastInvoiceId' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data) &&
+               (getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data.lastInvoiceId == invoiceId) &&
+               ('lastInvoiceNumber' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data) &&
+               (getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data.lastInvoiceNumber == request.resource.data.invoiceNumber)
+             ) &&
+             existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoice_numbers/$(getReservationDocId(request.resource.data.invoiceNumber)));
+    }
+
     // ===============================================================
     // Section 3: Scoped Security Rules: /businesses/{businessId}
     // ===============================================================
@@ -607,47 +629,74 @@ service cloud.firestore {
                            // - Counter document must exist and migration must not be active
                            // - Counter increment and invoice must match bi-directionally
                            // - Uniqueness reservation must be created in the same transaction
-                           (
-                             ('financialYear' in request.resource.data &&
-                              isValidFinancialYearForDate(request.resource.data.invoiceDate, request.resource.data.financialYear) &&
-                              exists(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear))) &&
-                             (
-                               !exists(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status) ||
-                               get(/databases/$(database)/documents/businesses/$(businessId)/counters/migration_status).data.status != 'in_progress'
-                             ) &&
-                             (
-                               existsAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)) &&
-                               ('lastInvoiceId' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data) &&
-                               (getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data.lastInvoiceId == invoiceId) &&
-                               ('lastInvoiceNumber' in getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data) &&
-                               (getAfter(/databases/$(database)/documents/businesses/$(businessId)/counters/$('invoices_' + request.resource.data.financialYear)).data.lastInvoiceNumber == request.resource.data.invoiceNumber)
-                             ) &&
-                             existsAfter(/databases/$(database)/documents/businesses/$(businessId)/invoice_numbers/$(getReservationDocId(request.resource.data.invoiceNumber)))
-                           )
+                           isValidSequentialIssuance(businessId, invoiceId)
                          );
 
         // Role-based Update Permissions:
-        // - Admin: can update any valid invoice (retains authorized correction rights).
-        // - Manager:
-        //     1. CANNOT modify invoices whose existing paymentStatus is 'Paid' or 'Cancelled'.
-        //     2. When transitioning an issued invoice ('Pending') into a finalized state ('Paid' or 'Cancelled'),
-        //        financial details (netPayable and items) CANNOT be modified simultaneously.
-        // - Cashier: STRICTLY DENIED from updating any invoice.
-        // - In all cases, immutable fields (id, invoiceNumber, createdAt, createdBy) cannot change.
+        // 1. Draft Invoices (resource.data.paymentStatus == 'Draft'):
+        //    - Updating draft to remain 'Draft': Admin, Manager, and Cashier (for own draft: createdBy == auth.uid)
+        //    - Issuing draft to 'Pending' or 'Paid': Admin, Manager, and Cashier (for own draft)
+        //      MUST satisfy exact same counter increment & reservation creation as normal billing.
+        // 2. Already-Issued Invoices (resource.data.paymentStatus != 'Draft'):
+        //    - Admin: can update any valid issued invoice (retains authorized correction rights).
+        //    - Manager:
+        //        * CANNOT modify invoices whose existing paymentStatus is 'Paid' or 'Cancelled'.
+        //        * When transitioning an issued invoice ('Pending') into a finalized state ('Paid' or 'Cancelled'),
+        //          financial details (netPayable and items) CANNOT be modified simultaneously.
+        //    - Cashier: STRICTLY DENIED from updating any already-issued invoice.
+        // 3. Immutability:
+        //    - id, createdAt, createdBy, and businessSnapshot are strictly immutable forever.
+        //    - invoiceNumber is allowed to change ONLY when transitioning from Draft to Issued ('Pending' or 'Paid').
+        //    - Once issued, invoiceNumber and financialYear are permanently immutable.
         allow update: if isActiveMember(businessId) &&
-                         (getMemberDoc(businessId).data.role in ['admin', 'manager']) &&
                          isValidInvoice(request.resource.data, invoiceId) &&
                          areImmutableInvoiceFieldsUnchanged() &&
                          (
-                           getMemberDoc(businessId).data.role == 'admin' ||
+                           // Case 1: Draft Invoices (Updating existing Draft or Issuing Draft)
                            (
-                             !(resource.data.paymentStatus in ['Paid', 'Cancelled']) &&
+                             resource.data.paymentStatus == 'Draft' &&
                              (
-                               resource.data.paymentStatus != 'Pending' ||
-                               !(request.resource.data.paymentStatus in ['Paid', 'Cancelled']) ||
+                               isAdmin(businessId) ||
+                               isManager(businessId) ||
                                (
-                                 request.resource.data.netPayable == resource.data.netPayable &&
-                                 request.resource.data.items == resource.data.items
+                                 isCashier(businessId) &&
+                                 ('createdBy' in resource.data) &&
+                                 resource.data.createdBy == request.auth.uid
+                               )
+                             ) &&
+                             (
+                               // 1a. Keeping as Draft: No counter increment or reservation required
+                               request.resource.data.paymentStatus == 'Draft' ||
+
+                               // 1b. Issuing Draft: Transitioning to 'Pending' or 'Paid'
+                               // Must atomically allocate sequential number and uniqueness reservation
+                               (
+                                 request.resource.data.paymentStatus in ['Pending', 'Paid'] &&
+                                 isValidSequentialIssuance(businessId, invoiceId)
+                               )
+                             )
+                           ) ||
+
+                           // Case 2: Already-Issued Invoices (Pending, Paid, Cancelled, Overdue)
+                           // Cashiers are STRICTLY DENIED from modifying issued invoices.
+                           // Issued invoices can NEVER be demoted back to Draft.
+                           (
+                             resource.data.paymentStatus != 'Draft' &&
+                             request.resource.data.paymentStatus != 'Draft' &&
+                             (isAdmin(businessId) || isManager(businessId)) &&
+                             (
+                               isAdmin(businessId) ||
+                               (
+                                 // Manager restrictions on already-issued invoices:
+                                 !(resource.data.paymentStatus in ['Paid', 'Cancelled']) &&
+                                 (
+                                   resource.data.paymentStatus != 'Pending' ||
+                                   !(request.resource.data.paymentStatus in ['Paid', 'Cancelled']) ||
+                                   (
+                                     request.resource.data.netPayable == resource.data.netPayable &&
+                                     request.resource.data.items == resource.data.items
+                                   )
+                                 )
                                )
                              )
                            )

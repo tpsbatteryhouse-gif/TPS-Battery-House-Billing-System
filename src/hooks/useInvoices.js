@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   subscribeInvoices,
   createInvoiceWithCounter,
+  saveInvoiceDraft,
   updateInvoice,
   updateInvoicePaymentStatus,
   deleteInvoice,
@@ -114,10 +115,6 @@ export function useInvoices(businessId = DEFAULT_BUSINESS_ID, businessConfig = {
   // 4. Save Invoice (Atomic Create or Role-checked Update)
   const saveInvoice = useCallback(
     async (invoiceData) => {
-      const isExisting = invoices.some(
-        (i) => (i.id && i.id === invoiceData.id) || (i.invoiceNumber && i.invoiceNumber === invoiceData.invoiceNumber)
-      );
-
       const authUser = user
         ? {
             ...user,
@@ -127,7 +124,19 @@ export function useInvoices(businessId = DEFAULT_BUSINESS_ID, businessConfig = {
           }
         : null;
 
-      if (isExisting) {
+      // If saving as Draft, route to dedicated draft persistence service
+      if (invoiceData.paymentStatus === 'Draft') {
+        return await saveInvoiceDraft(businessId, invoiceData, authUser);
+      }
+
+      // Check if this invoice is an existing ALREADY-ISSUED invoice in dataset
+      const existingInv = invoices.find(
+        (i) => (i.id && i.id === invoiceData.id) || (i.invoiceNumber && i.invoiceNumber === invoiceData.invoiceNumber)
+      );
+
+      const isExistingIssued = existingInv && existingInv.paymentStatus !== 'Draft' && !existingInv.invoiceNumber?.startsWith('DRAFT');
+
+      if (isExistingIssued) {
         return await updateInvoice(businessId, invoiceData.id, invoiceData, authUser);
       } else {
         const prefix = businessConfig.invoicePrefix || 'TPS/2026-27/';
@@ -135,6 +144,22 @@ export function useInvoices(businessId = DEFAULT_BUSINESS_ID, businessConfig = {
       }
     },
     [businessId, invoices, user, member, permissions, businessConfig.invoicePrefix]
+  );
+
+  // 4b. Dedicated Save Draft Action
+  const saveDraft = useCallback(
+    async (draftData) => {
+      const authUser = user
+        ? {
+            ...user,
+            role: member?.role,
+            status: member?.status,
+            permissions,
+          }
+        : null;
+      return await saveInvoiceDraft(businessId, draftData, authUser);
+    },
+    [businessId, user, member, permissions]
   );
 
   // 5. Update Payment Status
@@ -213,6 +238,7 @@ export function useInvoices(businessId = DEFAULT_BUSINESS_ID, businessConfig = {
     error,
     syncStatus,
     saveInvoice,
+    saveDraft,
     changeInvoiceStatus,
     removeInvoice,
     refreshInvoices,

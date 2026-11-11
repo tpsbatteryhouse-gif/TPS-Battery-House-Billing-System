@@ -44,6 +44,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     error: invoicesError,
     syncStatus: invoicesSyncStatus,
     saveInvoice,
+    saveDraft,
     changeInvoiceStatus,
     removeInvoice,
     refreshInvoices,
@@ -222,6 +223,67 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
       )
     ) {
       handleStartNewInvoice();
+    }
+  };
+
+  // Dedicated Draft Persistence Handler (Save for later)
+  const handleSaveDraftInEditor = async () => {
+    try {
+      const stableId = invoice.id || ('inv_draft_' + Date.now());
+      const txType = inferTransactionType(invoice);
+      const normalizedItems = (invoice.items || []).map((item) => normalizeInvoiceItem(item));
+
+      const draftToSave = {
+        ...invoice,
+        id: stableId,
+        paymentStatus: 'Draft',
+        transactionType: txType,
+        items: normalizedItems,
+        customer: {
+          ...(invoice?.customer || {}),
+          name: (invoice?.customer?.name || '').trim() || 'Draft Customer',
+        },
+        scrapExchange: {
+          ...invoice.scrapExchange,
+          enabled: Boolean(invoice.scrapExchange?.enabled),
+          amount: Math.max(0, Number(invoice.scrapExchange?.amount) || 0),
+          description: invoice.scrapExchange?.description !== undefined ? invoice.scrapExchange.description : 'Old 150Ah Scrap Battery Buyback',
+        },
+        additionalDiscount: Math.max(0, Number(invoice.additionalDiscount) || 0),
+        netPayable: totals.netPayable,
+        savedAt: new Date().toISOString(),
+      };
+
+      const saved = await saveDraft(draftToSave);
+
+      // Keep active editor state in sync with saved draft
+      setInvoice(saved);
+
+      // Update invoices array (match by stable ID first, then invoiceNumber)
+      setInvoices((prev) => {
+        const existingIdx = prev.findIndex(
+          (i) => (i.id && i.id === saved.id) || (i.invoiceNumber && i.invoiceNumber === saved.invoiceNumber)
+        );
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          updated[existingIdx] = saved;
+          return updated;
+        }
+        return [saved, ...prev];
+      });
+
+      setIsSavedFeedback(true);
+      showToast('Draft saved successfully', 'success');
+      setTimeout(() => setIsSavedFeedback(false), 2500);
+      return saved;
+    } catch (err) {
+      console.error('Failed to save draft in editor:', {
+        code: err?.code,
+        message: err?.message,
+        operation: 'handleSaveDraftInEditor',
+      });
+      showToast(`Error saving draft: ${err?.message || 'Failed to save draft.'}`, 'error');
+      return false;
     }
   };
 
@@ -500,6 +562,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                         customers={customers}
                         business={business}
                         onSave={handleSaveInvoiceInEditor}
+                        onSaveDraft={handleSaveDraftInEditor}
                         onReset={handleResetInvoice}
                         onLoadSample={handleLoadSample}
                         onBackToDashboard={() => setActiveView('dashboard')}
@@ -673,6 +736,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                         customers={customers}
                         business={business}
                         onSave={handleSaveInvoiceInEditor}
+                        onSaveDraft={handleSaveDraftInEditor}
                         onReset={handleStartNewInvoice}
                         onLoadSample={handleLoadSample}
                         isSaved={isSavedFeedback}

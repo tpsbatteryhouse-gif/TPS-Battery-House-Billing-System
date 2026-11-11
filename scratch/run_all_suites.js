@@ -39,6 +39,7 @@ const suites = [
   'scratch/test_firestore_invoice_save_permission.mjs',
   'scratch/test_invoice_form_state_integrity.mjs',
   'scratch/test_invoice_line_item_display.mjs',
+  'scratch/test_save_for_later_workflow.mjs',
 ];
 
 function checkEmulatorRunning() {
