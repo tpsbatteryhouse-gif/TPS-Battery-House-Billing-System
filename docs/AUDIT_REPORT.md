@@ -89,7 +89,7 @@ _(Supports Battery, Inverter, Solar, and Installation Service billing with mixed
 | **AUD-SAVE-05**| Deductions | Scrap & Discount Non-dup | Save invoice with ₹2,500 scrap and ₹500 discount.                               | Net payable ₹22,000; reopening does not re-subtract.                   | **Passed** |
 | **AUD-SAVE-06**| Precision  | Decimal Rates & Qty      | Item with rate ₹1,234.56 and qty 1.5 kW.                                        | Decimal values preserved accurately without integer truncation.       | **Passed** |
 | **AUD-SAVE-07**| Trans Type | B2B Invoice Workflow     | B2B classification with buyer GSTIN validation.                                 | Header TAX INVOICE (B2B); GSTIN validated against 15-char regex.       | **Passed** |
-| **AUD-SAVE-08**| Trans Type | B2C Retail Workflow      | B2C classification with optional/hidden GSTIN.                                  | Header RETAIL TAX INVOICE (B2C); zero false validation blocks.         | **Passed** |
+| **AUD-SAVE-08**| Trans Type | B2C Retail Workflow      | B2C classification with optional/hidden GSTIN.                                  | Header TAX INVOICE (B2C); zero false validation blocks.                | **Passed** |
 | **AUD-SAVE-09**| Migration  | Legacy Trans Type Infer  | Historical invoices lacking transactionType field.                              | Safely inferred via inferTransactionType without mutating record.     | **Passed** |
 | **AUD-SAVE-10**| Layout     | A4 Bottom Anchoring      | Generate 2-item, 4-item, and 10-item invoices in jsPDF and preview.             | Financial summary sits at bottom (~284mm) on short bills; multi-page. | **Passed** |
 

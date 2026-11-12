@@ -383,6 +383,98 @@ export async function initializeInvoiceCounter(
 }
 
 /**
+ * Dedicated Draft Persistence Service.
+ * Saves or updates an invoice in 'Draft' state.
+ *
+ * Rules:
+ * - Does NOT consume or require the financial-year counter document.
+ * - Does NOT create an issued-invoice number reservation.
+ * - Assigns or preserves a DRAFT- prefix identifier.
+ * - Preserves existing draft document ID to prevent duplicates on repeated clicks.
+ * - Stores paymentStatus: 'Draft'.
+ */
+export async function saveInvoiceDraft(
+  businessId = DEFAULT_BUSINESS_ID,
+  draftData,
+  user = null,
+  options = {}
+) {
+  const firestoreDb = options?.dbInstance || db;
+  const invoiceId = draftData.id || `inv_draft_${Date.now()}`;
+  const invoiceDocRef = doc(firestoreDb, 'businesses', businessId, 'invoices', invoiceId);
+
+  // Check if draft already exists in Firestore to handle update vs create audit fields
+  let isExistingDoc = false;
+  let existingCreatedAt = null;
+  let existingCreatedBy = null;
+  let existingInvoiceNumber = null;
+  let existingBusinessSnapshot = null;
+  try {
+    const existingSnap = await getDoc(invoiceDocRef);
+    if (existingSnap.exists()) {
+      const existingData = existingSnap.data() || {};
+      isExistingDoc = true;
+      existingCreatedAt = existingData.createdAt;
+      existingCreatedBy = existingData.createdBy;
+      existingInvoiceNumber = existingData.invoiceNumber;
+      existingBusinessSnapshot = existingData.businessSnapshot;
+    }
+  } catch {
+    isExistingDoc = false;
+  }
+
+  // Preserve existing DRAFT number, or generate a fresh DRAFT- number
+  const draftNumber = (draftData.invoiceNumber && draftData.invoiceNumber.startsWith('DRAFT'))
+    ? draftData.invoiceNumber
+    : (existingInvoiceNumber || `DRAFT-${Date.now().toString().slice(-6)}`);
+
+  const invoiceDate = draftData.invoiceDate || new Date().toISOString().split('T')[0];
+  const fy = draftData.financialYear || getFinancialYear(invoiceDate);
+
+  const snapshot = draftData.businessSnapshot ||
+    existingBusinessSnapshot ||
+    (options?.business ? createBusinessSnapshot(options.business) : createBusinessSnapshot(DEFAULT_BUSINESS_SETTINGS));
+
+  // Fallback for draft customer if not yet entered
+  const customer = {
+    ...(draftData.customer || {}),
+    name: (draftData.customer?.name || '').trim() || 'Draft Customer',
+  };
+
+  const sanitized = sanitizeInvoiceForFirestore(
+    {
+      ...draftData,
+      id: invoiceId,
+      invoiceNumber: draftNumber,
+      paymentStatus: 'Draft',
+      financialYear: fy,
+      customer,
+      businessSnapshot: snapshot,
+      createdAt: existingCreatedAt || draftData.createdAt,
+      createdBy: existingCreatedBy || draftData.createdBy,
+    },
+    user,
+    isExistingDoc
+  );
+
+  try {
+    await setDoc(invoiceDocRef, sanitized, { merge: true });
+    return sanitized;
+  } catch (writeErr) {
+    console.error('[InvoiceService] Failed to persist draft document:', {
+      errorCode: writeErr?.code,
+      errorMessage: writeErr?.message,
+      operation: isExistingDoc ? 'updateDraft' : 'createDraft',
+      documentId: invoiceId,
+      path: `businesses/${businessId}/invoices/${invoiceId}`,
+      userId: user?.uid || null,
+      userRole: user?.role || null,
+    });
+    throw writeErr;
+  }
+}
+
+/**
  * Creates an invoice atomically with a sequential counter to prevent number collisions.
  * Uses Firestore transaction to guarantee that two cashiers never get the same number.
  *
@@ -399,6 +491,12 @@ export async function createInvoiceWithCounter(
   options = { prefix: 'TPS' }
 ) {
   const firestoreDb = options?.dbInstance || db;
+
+  // 1. If it's a Draft, save via dedicated draft service without consuming counter sequence
+  if (invoiceData.paymentStatus === 'Draft') {
+    return await saveInvoiceDraft(businessId, invoiceData, user, options);
+  }
+
   const invoiceDate = invoiceData.invoiceDate || new Date().toISOString().split('T')[0];
   const fy = invoiceData.financialYear || getFinancialYear(invoiceDate);
   const prefix = getInvoicePrefix(options.prefix || 'TPS', invoiceDate);
@@ -406,39 +504,6 @@ export async function createInvoiceWithCounter(
   const counterId = `invoices_${fy}`;
   const counterRef = doc(firestoreDb, 'businesses', businessId, 'counters', counterId);
   const legacyCounterRef = doc(firestoreDb, 'businesses', businessId, 'counters', 'invoices');
-
-  const isDraft = invoiceData.paymentStatus === 'Draft';
-  const hasExistingPermanentNum = invoiceData.invoiceNumber &&
-    !invoiceData.invoiceNumber.startsWith('DRAFT') &&
-    !invoiceData.invoiceNumber.endsWith('/000') &&
-    invoiceData.invoiceNumber.includes('/');
-
-  // 1. If it's a Draft and does NOT have a permanent historical number, do NOT consume counter sequence
-  if (isDraft && !hasExistingPermanentNum) {
-    const draftNumber = invoiceData.invoiceNumber && invoiceData.invoiceNumber.startsWith('DRAFT')
-      ? invoiceData.invoiceNumber
-      : `DRAFT-${Date.now().toString().slice(-6)}`;
-
-    const invoiceId = invoiceData.id || `inv_draft_${Date.now()}`;
-    const invoiceDocRef = doc(firestoreDb, 'businesses', businessId, 'invoices', invoiceId);
-
-    const snapshot = invoiceData.businessSnapshot ||
-      (options?.business ? createBusinessSnapshot(options.business) : createBusinessSnapshot(DEFAULT_BUSINESS_SETTINGS));
-
-    const sanitized = sanitizeInvoiceForFirestore(
-      {
-        ...invoiceData,
-        id: invoiceId,
-        invoiceNumber: draftNumber,
-        businessSnapshot: snapshot,
-      },
-      user,
-      false
-    );
-
-    await setDoc(invoiceDocRef, sanitized);
-    return sanitized;
-  }
 
   // Pre-flight check: ensure the counter exists before starting invoice creation transaction.
   // firestore.rules requires: exists(/businesses/{businessId}/counters/invoices_{fy})
@@ -501,7 +566,15 @@ export async function createInvoiceWithCounter(
         const invoiceId = invoiceData.id || `inv_${Date.now()}_${String(nextSeq).padStart(3, '0')}`;
         const invoiceDocRef = doc(firestoreDb, 'businesses', businessId, 'invoices', invoiceId);
 
+        // Check if this invoice document already exists in Firestore (e.g. issuing a previously saved Draft)
+        const existingInvoiceSnap = await transaction.get(invoiceDocRef);
+        const isExistingDoc = existingInvoiceSnap.exists();
+        const existingCreatedAt = isExistingDoc ? existingInvoiceSnap.data()?.createdAt : null;
+        const existingCreatedBy = isExistingDoc ? existingInvoiceSnap.data()?.createdBy : null;
+        const existingBusinessSnapshot = isExistingDoc ? existingInvoiceSnap.data()?.businessSnapshot : null;
+
         const snapshot = invoiceData.businessSnapshot ||
+          existingBusinessSnapshot ||
           (options?.business ? createBusinessSnapshot(options.business) : createBusinessSnapshot(DEFAULT_BUSINESS_SETTINGS));
 
         // Sanitize payload strictly according to firestore.rules
@@ -512,9 +585,11 @@ export async function createInvoiceWithCounter(
             invoiceNumber: finalInvNumber,
             financialYear: fy,
             businessSnapshot: snapshot,
+            createdAt: existingCreatedAt || invoiceData.createdAt,
+            createdBy: existingCreatedBy || invoiceData.createdBy,
           },
           user,
-          false
+          isExistingDoc
         );
 
         // Uniqueness reservation reference and check
@@ -553,7 +628,7 @@ export async function createInvoiceWithCounter(
           transaction.set(legacyCounterRef, counterData, { merge: true });
         }
         transaction.set(reservationRef, reservationData);
-        transaction.set(invoiceDocRef, sanitized);
+        transaction.set(invoiceDocRef, sanitized, { merge: true });
 
         return sanitized;
       });
@@ -604,26 +679,40 @@ export async function updateInvoice(
       throw new Error('invoiceId is required for update.');
     }
 
+    const docRef = doc(dbInstance, 'businesses', businessId, 'invoices', invoiceId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) {
+      throw new Error(`Invoice ${invoiceId} not found.`);
+    }
+    const existingData = snap.data() || {};
+
     // Enforce businessSnapshot immutability at service layer
-    if (updateData && 'businessSnapshot' in updateData) {
-      const docRef = doc(dbInstance, 'businesses', businessId, 'invoices', invoiceId);
-      const snap = await getDoc(docRef);
-      if (snap.exists() && snap.data().businessSnapshot) {
-        const existingSnapshot = snap.data().businessSnapshot;
-        const incomingSnapshot = updateData.businessSnapshot;
-        if (JSON.stringify(existingSnapshot) !== JSON.stringify(incomingSnapshot)) {
-          throw new Error('Historical businessSnapshot on an invoice is immutable and cannot be modified.');
-        }
+    if (updateData && 'businessSnapshot' in updateData && existingData.businessSnapshot) {
+      const existingSnapshot = existingData.businessSnapshot;
+      const incomingSnapshot = updateData.businessSnapshot;
+      if (JSON.stringify(existingSnapshot) !== JSON.stringify(incomingSnapshot)) {
+        throw new Error('Historical businessSnapshot on an invoice is immutable and cannot be modified.');
       }
     }
 
+    // Preserve authoritative immutable fields to strictly satisfy Firestore CEL rules:
+    // (id, invoiceNumber, financialYear, createdAt, createdBy, businessSnapshot)
+    const mergedUpdate = {
+      ...updateData,
+      id: invoiceId,
+      invoiceNumber: existingData.invoiceNumber || updateData.invoiceNumber,
+      financialYear: existingData.financialYear || updateData.financialYear,
+      createdAt: existingData.createdAt || updateData.createdAt,
+      createdBy: existingData.createdBy || updateData.createdBy,
+      businessSnapshot: existingData.businessSnapshot || updateData.businessSnapshot,
+    };
+
     const sanitized = sanitizeInvoiceForFirestore(
-      { ...updateData, id: invoiceId },
+      mergedUpdate,
       user,
       true
     );
 
-    const docRef = doc(dbInstance, 'businesses', businessId, 'invoices', invoiceId);
     await updateDoc(docRef, sanitized);
     return sanitized;
   } catch (error) {

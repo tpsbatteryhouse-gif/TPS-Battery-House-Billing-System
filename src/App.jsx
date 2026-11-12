@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CheckCircle, Edit3, Download, Printer, Loader2 } from 'lucide-react';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
@@ -22,6 +22,13 @@ import {
 } from './utils/categories';
 import { calculateInvoiceTotals, validateInvoiceBeforePrint } from './utils/gstCalculations';
 import { formatINR } from './utils/numberToWords';
+import {
+  hasMeaningfulInvoiceData,
+  isIssuedInvoice,
+  createDraftSnapshot,
+  isDraftModified,
+} from './utils/draftState';
+import { canUserEditIssuedInvoice } from './utils/permissions';
 import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './context/useAuth';
 import { DEFAULT_BUSINESS_ID } from './context/authConstants';
@@ -32,9 +39,10 @@ import { useBusinessSettings } from './hooks/useBusinessSettings';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
 function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyncStatus }) {
-  const { permissions, signOutUser } = useAuth();
+  const { user, member, permissions, signOutUser } = useAuth();
   // Navigation View: 'dashboard' | 'invoices' | 'editor'
   const [activeView, setActiveView] = useState('dashboard');
+  const lastSavedSnapshotRef = useRef(null);
 
   // Centralized Invoices Dataset with Firestore Realtime Sync, Atomic Sequence Allocation & Offline Cache
   const {
@@ -44,6 +52,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     error: invoicesError,
     syncStatus: invoicesSyncStatus,
     saveInvoice,
+    saveDraft,
     changeInvoiceStatus,
     removeInvoice,
     refreshInvoices,
@@ -143,17 +152,17 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
   };
 
   // Toast feedback helper
-  const showToast = (msg, type = 'info') => {
+  const showToast = useCallback((msg, type = 'info') => {
     setToastMessage(msg);
     setToastType(type);
     setTimeout(() => {
       setToastMessage('');
       setToastType('info');
     }, 3500);
-  };
+  }, []);
 
   // Calculate totals for active invoice in editor
-  const totals = calculateInvoiceTotals(invoice, business.stateCode || '32');
+  const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
 
   // Handle Opening an Invoice from Dashboard / List into Full Generator
   const handleOpenInvoiceInEditor = (inv) => {
@@ -164,6 +173,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
       items: (inv.items || []).map((item) => normalizeInvoiceItem(item)),
     };
     setInvoice(openedInvoice);
+    lastSavedSnapshotRef.current = createDraftSnapshot(openedInvoice);
     setEditorMode('edit');
     setActiveView('editor');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -207,6 +217,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     const freshInvoice = createEmptyInvoice(newInvNo, today);
 
     setInvoice(freshInvoice);
+    lastSavedSnapshotRef.current = null;
     setActiveView('editor');
     setEditorMode('edit');
     if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
@@ -226,7 +237,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
   };
 
   // Handle Saving bill from within the Full GST Billing Studio
-  const handleSaveInvoiceInEditor = async (statusOverride = null) => {
+  const handleSaveInvoiceInEditor = useCallback(async (statusOverride = null) => {
     // Validate customer particulars before saving
     const customerName = (invoice?.customer?.name || '').trim();
     if (!customerName) {
@@ -268,6 +279,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
 
       // Keep active editor state exactly in sync with saved record
       setInvoice(saved);
+      lastSavedSnapshotRef.current = createDraftSnapshot(saved);
 
       // Update invoices array (match by stable ID first, then invoiceNumber)
       setInvoices((prev) => {
@@ -300,7 +312,136 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
       showToast(`Error saving invoice: ${displayMessage}`, 'error');
       return false;
     }
-  };
+  }, [invoice, totals.netPayable, saveInvoice, showToast, setInvoices]);
+
+  // Dedicated Draft & Issued Invoice Persistence Handler (Save for later)
+  const handleSaveDraftInEditor = useCallback(async () => {
+    // Check if this invoice is an existing ALREADY-ISSUED invoice
+    const existingIssuedDoc = invoices.find(
+      (i) => (i.id && i.id === invoice.id) || (i.invoiceNumber && i.invoiceNumber === invoice.invoiceNumber)
+    );
+    const isIssued = isIssuedInvoice(invoice) || (existingIssuedDoc && existingIssuedDoc.paymentStatus !== 'Draft' && !existingIssuedDoc.invoiceNumber?.startsWith('DRAFT'));
+
+    // Case B: Existing issued invoice
+    // Save for Later must not attempt to convert the issued invoice into a draft.
+    // If the user has permission to edit the issued invoice, save the changes to the existing invoice
+    // using the appropriate update workflow. Preserve its original invoice number.
+    // Update the payment status correctly when changing Paid to Pending.
+    // Do not create another invoice.
+    // Do not silently change the invoice lifecycle from Issued to Draft.
+    if (isIssued) {
+      const originalDoc = existingIssuedDoc || invoice;
+      const permCheck = canUserEditIssuedInvoice(member, originalDoc);
+      if (!permCheck.allowed) {
+        showToast(permCheck.reason, 'error');
+        return false;
+      }
+
+      // Case B1: Unchanged issued invoice
+      if (lastSavedSnapshotRef.current && !isDraftModified(invoice, lastSavedSnapshotRef.current)) {
+        showToast('No changes to save. Your invoice is already up to date.', 'info');
+        return invoice;
+      }
+
+      // Case B2: Modified issued invoice - update via existing update workflow
+      const updated = await handleSaveInvoiceInEditor(invoice.paymentStatus);
+      if (updated) {
+        lastSavedSnapshotRef.current = createDraftSnapshot(updated);
+        showToast(`Invoice ${updated.invoiceNumber} updated successfully!`, 'success');
+      }
+      return updated;
+    }
+
+    // Case D: New invoice without any meaningful data
+    if (!hasMeaningfulInvoiceData(invoice)) {
+      showToast(
+        'Please enter customer details or add at least one product or service before saving as draft.',
+        'info'
+      );
+      return false;
+    }
+
+    // Case C: Existing draft without modifications (unchanged)
+    if (lastSavedSnapshotRef.current && !isDraftModified(invoice, lastSavedSnapshotRef.current)) {
+      showToast('No changes to save. Your draft is already up to date.', 'info');
+      return invoice;
+    }
+
+    try {
+      const stableId = invoice.id || ('inv_draft_' + Date.now());
+      const txType = inferTransactionType(invoice);
+      const normalizedItems = (invoice.items || []).map((item) => normalizeInvoiceItem(item));
+
+      const draftToSave = {
+        ...invoice,
+        id: stableId,
+        paymentStatus: 'Draft',
+        transactionType: txType,
+        items: normalizedItems,
+        customer: {
+          ...(invoice?.customer || {}),
+          name: (invoice?.customer?.name || '').trim() || 'Draft Customer',
+        },
+        scrapExchange: {
+          ...invoice.scrapExchange,
+          enabled: Boolean(invoice.scrapExchange?.enabled),
+          amount: Math.max(0, Number(invoice.scrapExchange?.amount) || 0),
+          description: invoice.scrapExchange?.description !== undefined ? invoice.scrapExchange.description : 'Old 150Ah Scrap Battery Buyback',
+        },
+        additionalDiscount: Math.max(0, Number(invoice.additionalDiscount) || 0),
+        netPayable: totals.netPayable,
+        savedAt: new Date().toISOString(),
+      };
+
+      const saved = await saveDraft(draftToSave);
+
+      // Keep active editor state in sync with saved draft and record clean snapshot
+      setInvoice(saved);
+      lastSavedSnapshotRef.current = createDraftSnapshot(saved);
+
+      // Update invoices array (match by stable ID first, then invoiceNumber)
+      setInvoices((prev) => {
+        const existingIdx = prev.findIndex(
+          (i) => (i.id && i.id === saved.id) || (i.invoiceNumber && i.invoiceNumber === saved.invoiceNumber)
+        );
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          updated[existingIdx] = saved;
+          return updated;
+        }
+        return [saved, ...prev];
+      });
+
+      setIsSavedFeedback(true);
+      showToast('Draft saved successfully', 'success');
+      setTimeout(() => setIsSavedFeedback(false), 2500);
+      return saved;
+    } catch (err) {
+      console.error('[DraftService] Draft save failure diagnostics:', {
+        code: err?.code,
+        message: err?.message,
+        operation: 'handleSaveDraftInEditor',
+        documentId: invoice?.id,
+        path: `businesses/${DEFAULT_BUSINESS_ID}/invoices/${invoice?.id || 'new'}`,
+        authenticatedUid: user?.uid || 'unauthenticated',
+        authenticatedEmail: user?.email || 'unknown',
+        businessId: DEFAULT_BUSINESS_ID,
+        membershipRole: member?.role || 'unknown',
+        membershipStatus: member?.status || 'unknown',
+      });
+
+      const isPermissionDenied =
+        err?.code === 'permission-denied' ||
+        (err?.message && (err.message.includes('permission') || err.message.includes('PERMISSION_DENIED')));
+
+      const userDisplayMessage = isPermissionDenied
+        ? 'Unable to save this draft. Please check your account access or contact the administrator.'
+        : `Error saving draft: ${err?.message || 'Failed to save draft.'}`;
+
+      showToast(userDisplayMessage, 'error');
+      return false;
+    }
+  }, [invoice, invoices, member, totals.netPayable, saveDraft, handleSaveInvoiceInEditor, showToast, user, setInvoices]);
 
   // Delete Invoice from dataset (Admin only)
   const handleDeleteInvoice = async (idOrNumber) => {
@@ -500,6 +641,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                         customers={customers}
                         business={business}
                         onSave={handleSaveInvoiceInEditor}
+                        onSaveDraft={handleSaveDraftInEditor}
                         onReset={handleResetInvoice}
                         onLoadSample={handleLoadSample}
                         onBackToDashboard={() => setActiveView('dashboard')}
@@ -673,6 +815,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
                         customers={customers}
                         business={business}
                         onSave={handleSaveInvoiceInEditor}
+                        onSaveDraft={handleSaveDraftInEditor}
                         onReset={handleStartNewInvoice}
                         onLoadSample={handleLoadSample}
                         isSaved={isSavedFeedback}

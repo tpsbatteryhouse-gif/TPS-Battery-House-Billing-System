@@ -53,9 +53,7 @@ export default function InvoicePreview({ invoice, business: propBusiness, invoic
   const isCredit = invoice.paymentStatus === 'Pending' || invoice.paymentMode === 'Credit' || invoice.paymentMode === 'On Credit';
   const taxInvoiceTitle = isCredit
     ? `TAX INVOICE - CREDIT (${currentTxType})`
-    : currentTxType === TRANSACTION_TYPES.B2C
-      ? 'RETAIL TAX INVOICE (B2C)'
-      : `TAX INVOICE (${currentTxType})`;
+    : `TAX INVOICE (${currentTxType})`;
 
   // Format timestamp for operator footer
   const generatedDateStr = formatDate(invoice.invoiceDate || '2026-11-02');

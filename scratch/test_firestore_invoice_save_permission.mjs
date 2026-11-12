@@ -491,6 +491,33 @@ async function runSuite() {
     assert.strictEqual(counterSnap.data().lastSeq, 4 + concurrentRequests, 'Counter must advance by exact number of concurrent invoices');
   });
 
+  await it('Scenario 19: When counter is initialized with seed sequence 8, Store Manager creates TPS/2027-28/009', async () => {
+    const testFY = '2027-28';
+    const testPrefix = 'TPS/2027-28/';
+    await setDoc(doc(adminClient, 'businesses', BIZ_ID, 'counters', `invoices_${testFY}`), {
+      lastSeq: 8,
+      prefix: testPrefix,
+      updatedAt: new Date().toISOString(),
+      updatedBy: 'admin_uid',
+    });
+
+    const testInvoice = {
+      ...sampleInvoice,
+      invoiceDate: '2027-05-15',
+      financialYear: testFY,
+    };
+
+    const res = await createInvoiceWithCounter(BIZ_ID, testInvoice, managerUser, {
+      dbInstance: managerClient,
+      prefix: testPrefix,
+    });
+    assert.strictEqual(res.invoiceNumber, `${testPrefix}009`, 'Next allocated invoice number must be TPS/2027-28/009');
+    assert.strictEqual(res.netPayable, 14800);
+
+    const counterSnap = await getDoc(doc(managerClient, 'businesses', BIZ_ID, 'counters', `invoices_${testFY}`));
+    assert.strictEqual(counterSnap.data().lastSeq, 9, 'Counter must advance to 9');
+  });
+
   await testEnv.cleanup();
 
   console.log('\n================================================================');

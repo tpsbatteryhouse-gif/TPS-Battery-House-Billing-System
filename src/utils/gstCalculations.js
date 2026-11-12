@@ -357,6 +357,7 @@ export function calculateLineItem(item, isInterstate = false) {
     igstAmount: roundToTwoDecimals(igstAmount),
     totalGstAmount: roundToTwoDecimals(totalGstAmount),
     lineTotal: roundToTwoDecimals(grossAmount),
+    total: roundToTwoDecimals(grossAmount),
   };
 }
 
