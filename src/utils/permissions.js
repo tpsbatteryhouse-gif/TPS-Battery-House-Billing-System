@@ -142,3 +142,48 @@ export function canCreateInvoice(role) {
   return hasPermission(role, 'canCreateInvoice');
 }
 
+/**
+ * Evaluates whether a user/member has permission to edit an already-issued invoice.
+ * Strictly enforces that:
+ * - Administrators have full correction rights on issued invoices.
+ * - Managers cannot edit invoices whose existing paymentStatus is 'Paid' or 'Cancelled'.
+ * - Cashiers are strictly denied from altering finalized issued invoices.
+ */
+export function canUserEditIssuedInvoice(member, existingInvoice) {
+  if (!member || member.status !== ACCOUNT_STATUS.ACTIVE) {
+    return {
+      allowed: false,
+      reason: 'Access Denied: Only active staff members can update invoices.',
+    };
+  }
+
+  const role = member.role;
+
+  if (role === ROLES.ADMIN) {
+    return { allowed: true };
+  }
+
+  if (role === ROLES.MANAGER) {
+    const existingStatus = existingInvoice?.paymentStatus;
+    if (existingStatus === 'Paid' || existingStatus === 'Cancelled') {
+      return {
+        allowed: false,
+        reason: `Access Denied: Only store administrators can modify an invoice that was previously issued as ${existingStatus}.`,
+      };
+    }
+    return { allowed: true };
+  }
+
+  if (role === ROLES.CASHIER) {
+    return {
+      allowed: false,
+      reason: 'Access Denied: Billing cashiers cannot modify an already-issued invoice. Please ask an administrator.',
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: 'Access Denied: You do not have permission to modify this issued invoice.',
+  };
+}
+

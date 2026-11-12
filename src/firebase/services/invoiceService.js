@@ -679,26 +679,40 @@ export async function updateInvoice(
       throw new Error('invoiceId is required for update.');
     }
 
+    const docRef = doc(dbInstance, 'businesses', businessId, 'invoices', invoiceId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) {
+      throw new Error(`Invoice ${invoiceId} not found.`);
+    }
+    const existingData = snap.data() || {};
+
     // Enforce businessSnapshot immutability at service layer
-    if (updateData && 'businessSnapshot' in updateData) {
-      const docRef = doc(dbInstance, 'businesses', businessId, 'invoices', invoiceId);
-      const snap = await getDoc(docRef);
-      if (snap.exists() && snap.data().businessSnapshot) {
-        const existingSnapshot = snap.data().businessSnapshot;
-        const incomingSnapshot = updateData.businessSnapshot;
-        if (JSON.stringify(existingSnapshot) !== JSON.stringify(incomingSnapshot)) {
-          throw new Error('Historical businessSnapshot on an invoice is immutable and cannot be modified.');
-        }
+    if (updateData && 'businessSnapshot' in updateData && existingData.businessSnapshot) {
+      const existingSnapshot = existingData.businessSnapshot;
+      const incomingSnapshot = updateData.businessSnapshot;
+      if (JSON.stringify(existingSnapshot) !== JSON.stringify(incomingSnapshot)) {
+        throw new Error('Historical businessSnapshot on an invoice is immutable and cannot be modified.');
       }
     }
 
+    // Preserve authoritative immutable fields to strictly satisfy Firestore CEL rules:
+    // (id, invoiceNumber, financialYear, createdAt, createdBy, businessSnapshot)
+    const mergedUpdate = {
+      ...updateData,
+      id: invoiceId,
+      invoiceNumber: existingData.invoiceNumber || updateData.invoiceNumber,
+      financialYear: existingData.financialYear || updateData.financialYear,
+      createdAt: existingData.createdAt || updateData.createdAt,
+      createdBy: existingData.createdBy || updateData.createdBy,
+      businessSnapshot: existingData.businessSnapshot || updateData.businessSnapshot,
+    };
+
     const sanitized = sanitizeInvoiceForFirestore(
-      { ...updateData, id: invoiceId },
+      mergedUpdate,
       user,
       true
     );
 
-    const docRef = doc(dbInstance, 'businesses', businessId, 'invoices', invoiceId);
     await updateDoc(docRef, sanitized);
     return sanitized;
   } catch (error) {

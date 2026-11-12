@@ -35,10 +35,19 @@ export function hasMeaningfulInvoiceData(invoice) {
 
 /**
  * Checks whether the invoice was already issued in an official statutory state.
- * Prevents "Save for later" from demoting finalized bills.
+ * Accurately distinguishes between:
+ * - Fresh unpersisted invoice templates (e.g. 'TPS/2026-27/---')
+ * - Draft invoices ('DRAFT-...' or paymentStatus === 'Draft')
+ * - Officially issued invoices (e.g. 'TPS/2026-27/010' with status 'Pending', 'Paid', etc.)
  */
 export function isIssuedInvoice(invoice) {
   if (!invoice || typeof invoice !== 'object') return false;
+  if (invoice.paymentStatus === 'Draft') return false;
+  if (typeof invoice.invoiceNumber === 'string') {
+    if (invoice.invoiceNumber.startsWith('DRAFT')) return false;
+    if (invoice.invoiceNumber.includes('---')) return false;
+  }
+  if (typeof invoice.id === 'string' && invoice.id.startsWith('inv_draft_')) return false;
   const status = invoice.paymentStatus;
   return ['Pending', 'Paid', 'Cancelled', 'Overdue'].includes(status);
 }
@@ -88,6 +97,7 @@ export function createDraftSnapshot(invoice) {
     transactionType: invoice.transactionType || 'B2C',
     invoiceDate: invoice.invoiceDate || '',
     dueDate: invoice.dueDate || '',
+    paymentStatus: invoice.paymentStatus || 'Paid',
     paymentMode: invoice.paymentMode || 'Cash',
     placeOfSupply: invoice.placeOfSupply || '',
     reverseCharge: Boolean(invoice.reverseCharge),

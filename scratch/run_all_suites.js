@@ -41,6 +41,7 @@ const suites = [
   'scratch/test_invoice_line_item_display.mjs',
   'scratch/test_save_for_later_workflow.mjs',
   'scratch/test_admin_draft_save_permissions.mjs',
+  'scratch/test_save_for_later_issued_invoice_repair.mjs',
 ];
 
 function checkEmulatorRunning() {
@@ -90,8 +91,10 @@ async function ensureEmulator() {
       '--webchannel_port',
       '8981',
     ],
-    { stdio: 'ignore', detached: true }
+    { stdio: 'pipe', detached: true }
   );
+  emuProcess.stderr?.on('data', (d) => console.error('[Emu stderr]', d.toString().trim()));
+  emuProcess.stdout?.on('data', (d) => console.log('[Emu stdout]', d.toString().trim()));
 
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500));

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CheckCircle, Edit3, Download, Printer, Loader2 } from 'lucide-react';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
@@ -28,6 +28,7 @@ import {
   createDraftSnapshot,
   isDraftModified,
 } from './utils/draftState';
+import { canUserEditIssuedInvoice } from './utils/permissions';
 import { AuthProvider } from './context/AuthContext';
 import { useAuth } from './context/useAuth';
 import { DEFAULT_BUSINESS_ID } from './context/authConstants';
@@ -151,14 +152,14 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
   };
 
   // Toast feedback helper
-  const showToast = (msg, type = 'info') => {
+  const showToast = useCallback((msg, type = 'info') => {
     setToastMessage(msg);
     setToastType(type);
     setTimeout(() => {
       setToastMessage('');
       setToastType('info');
     }, 3500);
-  };
+  }, []);
 
   // Calculate totals for active invoice in editor
   const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
@@ -172,11 +173,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
       items: (inv.items || []).map((item) => normalizeInvoiceItem(item)),
     };
     setInvoice(openedInvoice);
-    if (inv.paymentStatus === 'Draft') {
-      lastSavedSnapshotRef.current = createDraftSnapshot(openedInvoice);
-    } else {
-      lastSavedSnapshotRef.current = null;
-    }
+    lastSavedSnapshotRef.current = createDraftSnapshot(openedInvoice);
     setEditorMode('edit');
     setActiveView('editor');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -239,15 +236,120 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
     }
   };
 
-  // Dedicated Draft Persistence Handler (Save for later)
-  const handleSaveDraftInEditor = async () => {
-    // Case E: Previously issued invoice cannot be converted back to Draft
-    if (isIssuedInvoice(invoice)) {
-      showToast(
-        `Cannot save as draft: This bill has already been issued as ${invoice.paymentStatus}.`,
-        'error'
-      );
+  // Handle Saving bill from within the Full GST Billing Studio
+  const handleSaveInvoiceInEditor = useCallback(async (statusOverride = null) => {
+    // Validate customer particulars before saving
+    const customerName = (invoice?.customer?.name || '').trim();
+    if (!customerName) {
+      showToast('Please enter customer name before saving.', 'error');
       return false;
+    }
+
+    // Validate invoice form state before saving
+    const validation = validateInvoiceBeforePrint(invoice);
+    if (!validation.isValid) {
+      showToast(validation.errorSummary || 'Please add at least one product or service before saving.', 'error');
+      return false;
+    }
+
+    try {
+      const stableId = invoice.id || ('inv-' + Date.now());
+      const txType = inferTransactionType(invoice);
+      const normalizedItems = (invoice.items || []).map((item) => normalizeInvoiceItem(item));
+      const paymentStatus = (typeof statusOverride === 'string' && statusOverride) || invoice.paymentStatus || 'Pending';
+
+      const invoiceToSave = {
+        ...invoice,
+        id: stableId,
+        paymentStatus,
+        transactionType: txType,
+        items: normalizedItems,
+        scrapExchange: {
+          ...invoice.scrapExchange,
+          enabled: Boolean(invoice.scrapExchange?.enabled),
+          amount: Math.max(0, Number(invoice.scrapExchange?.amount) || 0),
+          description: invoice.scrapExchange?.description !== undefined ? invoice.scrapExchange.description : 'Old 150Ah Scrap Battery Buyback',
+        },
+        additionalDiscount: Math.max(0, Number(invoice.additionalDiscount) || 0),
+        netPayable: totals.netPayable,
+        savedAt: new Date().toISOString(),
+      };
+
+      const saved = await saveInvoice(invoiceToSave);
+
+      // Keep active editor state exactly in sync with saved record
+      setInvoice(saved);
+      lastSavedSnapshotRef.current = createDraftSnapshot(saved);
+
+      // Update invoices array (match by stable ID first, then invoiceNumber)
+      setInvoices((prev) => {
+        const existingIdx = prev.findIndex(
+          (i) => (i.id && i.id === saved.id) || i.invoiceNumber === saved.invoiceNumber
+        );
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          updated[existingIdx] = saved;
+          return updated;
+        }
+        return [saved, ...prev];
+      });
+
+      setIsSavedFeedback(true);
+      showToast(`Invoice ${saved.invoiceNumber} saved!`);
+      setTimeout(() => setIsSavedFeedback(false), 2500);
+      return saved;
+    } catch (err) {
+      console.error('Failed to save invoice in editor:', {
+        code: err?.code,
+        message: err?.message,
+        operation: 'handleSaveInvoiceInEditor',
+      });
+      const errorCode = err?.code;
+      let displayMessage = err?.message || 'Unknown persistence failure.';
+      if (errorCode === 'permission-denied') {
+        displayMessage = 'Permission denied: Please ensure you are an active staff member and that the financial year counter has been initialized by an administrator.';
+      }
+      showToast(`Error saving invoice: ${displayMessage}`, 'error');
+      return false;
+    }
+  }, [invoice, totals.netPayable, saveInvoice, showToast, setInvoices]);
+
+  // Dedicated Draft & Issued Invoice Persistence Handler (Save for later)
+  const handleSaveDraftInEditor = useCallback(async () => {
+    // Check if this invoice is an existing ALREADY-ISSUED invoice
+    const existingIssuedDoc = invoices.find(
+      (i) => (i.id && i.id === invoice.id) || (i.invoiceNumber && i.invoiceNumber === invoice.invoiceNumber)
+    );
+    const isIssued = isIssuedInvoice(invoice) || (existingIssuedDoc && existingIssuedDoc.paymentStatus !== 'Draft' && !existingIssuedDoc.invoiceNumber?.startsWith('DRAFT'));
+
+    // Case B: Existing issued invoice
+    // Save for Later must not attempt to convert the issued invoice into a draft.
+    // If the user has permission to edit the issued invoice, save the changes to the existing invoice
+    // using the appropriate update workflow. Preserve its original invoice number.
+    // Update the payment status correctly when changing Paid to Pending.
+    // Do not create another invoice.
+    // Do not silently change the invoice lifecycle from Issued to Draft.
+    if (isIssued) {
+      const originalDoc = existingIssuedDoc || invoice;
+      const permCheck = canUserEditIssuedInvoice(member, originalDoc);
+      if (!permCheck.allowed) {
+        showToast(permCheck.reason, 'error');
+        return false;
+      }
+
+      // Case B1: Unchanged issued invoice
+      if (lastSavedSnapshotRef.current && !isDraftModified(invoice, lastSavedSnapshotRef.current)) {
+        showToast('No changes to save. Your invoice is already up to date.', 'info');
+        return invoice;
+      }
+
+      // Case B2: Modified issued invoice - update via existing update workflow
+      const updated = await handleSaveInvoiceInEditor(invoice.paymentStatus);
+      if (updated) {
+        lastSavedSnapshotRef.current = createDraftSnapshot(updated);
+        showToast(`Invoice ${updated.invoiceNumber} updated successfully!`, 'success');
+      }
+      return updated;
     }
 
     // Case D: New invoice without any meaningful data
@@ -339,85 +441,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
       showToast(userDisplayMessage, 'error');
       return false;
     }
-  };
-
-  // Handle Saving bill from within the Full GST Billing Studio
-  const handleSaveInvoiceInEditor = async (statusOverride = null) => {
-    // Validate customer particulars before saving
-    const customerName = (invoice?.customer?.name || '').trim();
-    if (!customerName) {
-      showToast('Please enter customer name before saving.', 'error');
-      return false;
-    }
-
-    // Validate invoice form state before saving
-    const validation = validateInvoiceBeforePrint(invoice);
-    if (!validation.isValid) {
-      showToast(validation.errorSummary || 'Please add at least one product or service before saving.', 'error');
-      return false;
-    }
-
-    try {
-      const stableId = invoice.id || ('inv-' + Date.now());
-      const txType = inferTransactionType(invoice);
-      const normalizedItems = (invoice.items || []).map((item) => normalizeInvoiceItem(item));
-      const paymentStatus = (typeof statusOverride === 'string' && statusOverride) || invoice.paymentStatus || 'Pending';
-
-      const invoiceToSave = {
-        ...invoice,
-        id: stableId,
-        paymentStatus,
-        transactionType: txType,
-        items: normalizedItems,
-        scrapExchange: {
-          ...invoice.scrapExchange,
-          enabled: Boolean(invoice.scrapExchange?.enabled),
-          amount: Math.max(0, Number(invoice.scrapExchange?.amount) || 0),
-          description: invoice.scrapExchange?.description !== undefined ? invoice.scrapExchange.description : 'Old 150Ah Scrap Battery Buyback',
-        },
-        additionalDiscount: Math.max(0, Number(invoice.additionalDiscount) || 0),
-        netPayable: totals.netPayable,
-        savedAt: new Date().toISOString(),
-      };
-
-      const saved = await saveInvoice(invoiceToSave);
-
-      // Keep active editor state exactly in sync with saved record
-      setInvoice(saved);
-      lastSavedSnapshotRef.current = null;
-
-      // Update invoices array (match by stable ID first, then invoiceNumber)
-      setInvoices((prev) => {
-        const existingIdx = prev.findIndex(
-          (i) => (i.id && i.id === saved.id) || i.invoiceNumber === saved.invoiceNumber
-        );
-        if (existingIdx >= 0) {
-          const updated = [...prev];
-          updated[existingIdx] = saved;
-          return updated;
-        }
-        return [saved, ...prev];
-      });
-
-      setIsSavedFeedback(true);
-      showToast(`Invoice ${saved.invoiceNumber} saved!`);
-      setTimeout(() => setIsSavedFeedback(false), 2500);
-      return saved;
-    } catch (err) {
-      console.error('Failed to save invoice in editor:', {
-        code: err?.code,
-        message: err?.message,
-        operation: 'handleSaveInvoiceInEditor',
-      });
-      const errorCode = err?.code;
-      let displayMessage = err?.message || 'Unknown persistence failure.';
-      if (errorCode === 'permission-denied') {
-        displayMessage = 'Permission denied: Please ensure you are an active staff member and that the financial year counter has been initialized by an administrator.';
-      }
-      showToast(`Error saving invoice: ${displayMessage}`, 'error');
-      return false;
-    }
-  };
+  }, [invoice, invoices, member, totals.netPayable, saveDraft, handleSaveInvoiceInEditor, showToast, user, setInvoices]);
 
   // Delete Invoice from dataset (Admin only)
   const handleDeleteInvoice = async (idOrNumber) => {

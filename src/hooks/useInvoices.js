@@ -134,7 +134,9 @@ export function useInvoices(businessId = DEFAULT_BUSINESS_ID, businessConfig = {
         (i) => (i.id && i.id === invoiceData.id) || (i.invoiceNumber && i.invoiceNumber === invoiceData.invoiceNumber)
       );
 
-      const isExistingIssued = existingInv && existingInv.paymentStatus !== 'Draft' && !existingInv.invoiceNumber?.startsWith('DRAFT');
+      const isExistingIssued =
+        (existingInv && existingInv.paymentStatus !== 'Draft' && !existingInv.invoiceNumber?.startsWith('DRAFT')) ||
+        (Boolean(invoiceData.invoiceNumber) && !invoiceData.invoiceNumber.startsWith('DRAFT') && !invoiceData.invoiceNumber.includes('---'));
 
       if (isExistingIssued) {
         return await updateInvoice(businessId, invoiceData.id, invoiceData, authUser);
