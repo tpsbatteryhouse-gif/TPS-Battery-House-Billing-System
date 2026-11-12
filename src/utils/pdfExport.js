@@ -52,9 +52,7 @@ export async function generateVectorPdf(invoice, businessInput, invoiceCopy = 'O
   const isCredit = invoice.paymentStatus === 'Pending' || invoice.paymentMode === 'Credit' || invoice.paymentMode === 'On Credit';
   const taxInvoiceTitle = isCredit
     ? `TAX INVOICE - CREDIT (${currentTxType})`
-    : currentTxType === TRANSACTION_TYPES.B2C
-      ? 'RETAIL TAX INVOICE (B2C)'
-      : `TAX INVOICE (${currentTxType})`;
+    : `TAX INVOICE (${currentTxType})`;
 
   // Generate UPI QR Code as an optimized small data URL
   let qrDataUrl = null;

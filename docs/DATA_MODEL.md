@@ -48,7 +48,7 @@ Defined in [`src/utils/categories.js`](../src/utils/categories.js):
 | Key | Label | Requires GSTIN | Default Title | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `B2B` | Business to Business | Yes (Recommended) | `TAX INVOICE (B2B)` | Regular GST registered entity claiming Input Tax Credit. |
-| `B2C` | Business to Consumer | No (Hidden/Optional) | `RETAIL TAX INVOICE (B2C)` | Unregistered end-user consumer sales. |
+| `B2C` | Business to Consumer | No (Hidden/Optional) | `TAX INVOICE (B2C)` | Unregistered end-user consumer sales. |
 | `SEZ` | Special Economic Zone | Optional | `TAX INVOICE (SEZ)` | Supply to SEZ developer or unit under bond/LUT. |
 | `EXPORT` | Export | Optional | `TAX INVOICE (EXPORT)` | Physical cross-border international supplies. |
 | `DEEMED_EXPORT`| Deemed Export | Optional | `TAX INVOICE (DEEMED EXPORT)`| Domestic supplies treated as exports under GST act. |

@@ -61,7 +61,7 @@ The Tax Bill Generator and Quick Create Modal include a dedicated **Transaction 
   - Used for retail consumers, home solar users, and private vehicle battery buyers.
   - Displays customer name, phone number, and delivery address.
   - Hides or optionalizes the buyer GSTIN to eliminate false validation blocks.
-  - Invoice header title renders as **RETAIL TAX INVOICE (B2C)**.
+  - Invoice header title renders as **TAX INVOICE (B2C)**.
 - **SEZ / Export / Deemed Export:**
   - Configurable transaction types with destination indicators for special economic zone supplies, physical exports, or deemed export supplies.
 

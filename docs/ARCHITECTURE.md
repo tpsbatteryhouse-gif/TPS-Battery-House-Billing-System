@@ -180,7 +180,7 @@ The invoice layout in [`src/components/InvoicePreview.jsx`](../src/components/In
   - When items exceed `202.5 mm`, the engine completes the table on continuation pages with repeating column headers (`Sl`, `HSN Code`, `Item Name`, `Qty`, `Price`, `Dis Amt`, `GrossAmt`, `GST %`, `GST Amt`, `Total`) and proper pagination (`Page p of totalPages`).
   - The final summary and signature block always sit cleanly at the bottom of the final page.
 - **Section Structure:**
-  - **Section A (Seller Header & Top Bar):** Business PAN (`PAN NO : DIUPP1211B`), `TAX INVOICE (B2B)` / `RETAIL TAX INVOICE (B2C)`, Copy Title (`Original for Buyer`), TPS BATTERYS HOUSE branding, Padinarangadi address, contact numbers, GSTIN, and State Code `32`.
+  - **Section A (Seller Header & Top Bar):** Business PAN (`PAN NO : DIUPP1211B`), `TAX INVOICE (B2B)` / `TAX INVOICE (B2C)`, Copy Title (`Original for Buyer`), TPS BATTERYS HOUSE branding, Padinarangadi address, contact numbers, GSTIN, and State Code `32`.
   - **Section B (Buyer, Consignee & Invoice Details Grid):** Three enclosed columns: `Bill To` (Buyer address, GSTIN, PAN), `Shipped To` (Consignee delivery address), and structured metadata table (`Invoice Date`, `Invoice No`, `Payment Mode`, `Place of Supply`, `EWay Bill No`, `IRN No`).
   - **Section C (Main Product Table):** Traditional 10-column table with thin borders: `Sl`, `HSN Code`, `Item Name` (with dynamic category specs, S/N, warranty), `Quantity`, `Price` (pre-tax unit price), `Dis Amt` (`0.00`), `GrossAmt` (taxable amount), `GST` (`%` and `Amt`), and `Total`.
   - **Section D (Item Subtotal):** Subtotal row aggregating quantity, taxable gross amount, total GST, and final line totals.
