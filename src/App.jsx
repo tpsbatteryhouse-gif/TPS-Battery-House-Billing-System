@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CheckCircle, Edit3, Download, Printer, Loader2 } from 'lucide-react';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
@@ -161,7 +161,7 @@ function AppContent({ business, setBusiness, onSaveBusinessSettings, settingsSyn
   };
 
   // Calculate totals for active invoice in editor
-  const totals = calculateInvoiceTotals(invoice, business.stateCode || '32');
+  const totals = calculateInvoiceTotals(invoice, business?.stateCode || '32');
 
   // Handle Opening an Invoice from Dashboard / List into Full Generator
   const handleOpenInvoiceInEditor = (inv) => {

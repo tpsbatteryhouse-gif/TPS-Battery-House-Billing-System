@@ -34,7 +34,6 @@ import {
 } from '../src/firebase/services/invoiceService.js';
 import { calculateInvoiceTotals } from '../src/utils/gstCalculations.js';
 import {
-  hasMeaningfulInvoiceData,
   isIssuedInvoice,
   createDraftSnapshot,
   isDraftModified,
@@ -619,6 +618,12 @@ async function runSuite() {
   console.log(`RESULTS: ${passed} PASSED, ${failed} FAILED`);
   console.log('================================================================\n');
 
+  if (testEnv) {
+    try {
+      await testEnv.cleanup();
+    } catch {}
+  }
+
   if (spawnedEmu) {
     try {
       spawnedEmu.kill('SIGKILL');
@@ -628,6 +633,7 @@ async function runSuite() {
   if (failed > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runSuite().catch((err) => {
